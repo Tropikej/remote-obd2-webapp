@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "rotate-dongle-keys": "ts-node -r tsconfig-paths/register src/jobs/rotate-dongle-keys.ts",
     "test:agent-heartbeat": "ts-node -r tsconfig-paths/register src/scripts/test-agent-heartbeat.ts",
-    "test:crypto": "ts-node -r tsconfig-paths/register src/scripts/validate-dongle-token-crypto.ts"
+    "test:crypto": "ts-node -r tsconfig-paths/register src/scripts/validate-dongle-token-crypto.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@dashboard/shared": "0.0.0",
@@ -32,6 +33,7 @@
     "@types/pg": "^8.11.5",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.0"
   }
 }

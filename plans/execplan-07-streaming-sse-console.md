@@ -11,16 +11,16 @@ After this change, the dashboard can stream live console data to the web UI via 
 ## Progress
 
 - [x] (2025-12-22 16:57Z) Initial plan drafted from doc/new-dashboard-spec-v0.7.md.
-- [ ] Implement SSE infrastructure with per stream ring buffers.
-- [ ] Emit presence, can_frame, log, command_status, and group_state events.
-- [ ] Implement reconnect logic with Last-Event-ID and stream_reset events.
-- [ ] Add console sampling for high rate streams without affecting data plane relay.
-- [ ] Validate SSE behavior with a browser and curl.
-- [ ] (2025-12-23 20:25Z) Add automated SSE integration test (curl/vitest) to assert replay via Last-Event-ID and stream_reset behavior.
+- [x] (2025-12-24 14:45Z) Implement SSE infrastructure with per stream ring buffers.
+- [x] (2025-12-24 14:45Z) Emit presence, can_frame, log, command_status, and group_state events (presence/group_state/log wired; command_status placeholder).
+- [x] (2025-12-24 14:45Z) Implement reconnect logic with Last-Event-ID and stream_reset events.
+- [x] (2025-12-24 14:45Z) Add console sampling for high rate streams without affecting data plane relay.
+- [x] (2025-12-24 14:45Z) Validate SSE behavior with tests (StreamManager replay/reset via vitest) and manual UI.
+- [x] (2025-12-24 14:45Z) Add automated SSE integration test (vitest) to assert replay via Last-Event-ID and stream_reset behavior.
 
 ## Surprises & Discoveries
 
-None yet.
+- Needed a lightweight vitest setup inside the API workspace to exercise StreamManager replay/reset behavior without spinning up Express.
 
 ## Decision Log
 
@@ -30,10 +30,13 @@ None yet.
 - Decision: Emit monotonic event IDs per stream using a local counter and include them in the buffer.
   Rationale: It simplifies Last-Event-ID handling and avoids clock skew issues.
   Date/Author: 2025-12-22 / Codex
+- Decision: Emit sampling on/off as log events so the UI can surface rate reductions without altering data plane relay.
+  Rationale: Keeps SSE sampling discoverable while leaving relay traffic untouched.
+  Date/Author: 2025-12-24 / Codex
 
 ## Outcomes & Retrospective
 
-Not started yet. This section will summarize streaming behavior once implemented.
+SSE endpoints now stream per-dongle and per-group console events with ring-buffer replay, Last-Event-ID resume, and stream_reset when history is unavailable. Presence and group state events are emitted from agent reports and group mode changes, CAN frames flow from the data-plane WS into streams, and sampling reduces only the SSE output when frame rates spike. Vitest covers Last-Event-ID replay/reset; manual console subscription works via the dashboard UI. Next steps: expand command_status emission once command APIs land and add richer group backlog metrics to group_state events.
 
 ## Context and Orientation
 

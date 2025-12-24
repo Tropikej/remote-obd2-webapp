@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { getRedis } from "../redis/client";
 import { DataPlaneCanMessage } from "@dashboard/shared";
 import { markGroupMode } from "../services/groups";
+import { streamManager } from "../services/streams";
 
 type AgentConnection = {
   agentId: string;
@@ -143,6 +144,36 @@ const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => 
     },
   };
 
+  // Publish to SSE streams for group and dongle consoles.
+  const tsIso = payload.frame.ts;
+  streamManager.publish(`dongle:${payload.dongle_id}`, "can_frame", {
+    type: "can_frame",
+    group_id: payload.group_id,
+    dongle_id: payload.dongle_id,
+    direction: payload.direction === "a_to_b" ? "tx" : payload.direction === "b_to_a" ? "rx" : payload.direction,
+    bus: payload.frame.bus,
+    id: payload.frame.id ?? payload.frame.can_id,
+    can_id: payload.frame.can_id ?? payload.frame.id,
+    is_extended: payload.frame.is_extended,
+    dlc: payload.frame.dlc,
+    data_hex: payload.frame.data_hex,
+    ts: tsIso,
+  });
+
+  streamManager.publish(`group:${payload.group_id}`, "can_frame", {
+    type: "can_frame",
+    group_id: payload.group_id,
+    dongle_id: payload.dongle_id,
+    direction: payload.direction,
+    bus: payload.frame.bus,
+    id: payload.frame.id ?? payload.frame.can_id,
+    can_id: payload.frame.can_id ?? payload.frame.id,
+    is_extended: payload.frame.is_extended,
+    dlc: payload.frame.dlc,
+    data_hex: payload.frame.data_hex,
+    ts: tsIso,
+  });
+
   const delivered = targetAgentId ? sendToAgent(targetAgentId, payload) : false;
   if (!delivered) {
     await bufferFrame(message.group_id, direction, payload);
@@ -226,6 +257,7 @@ export const attachDataPlaneWs = (server: import("http").Server) => {
         connections.delete(agentId);
       }
       void updateGroupModesForAgent(agentId);
+      void publishAgentOffline(agentId);
     });
 
     socket.on("error", () => {
@@ -234,6 +266,24 @@ export const attachDataPlaneWs = (server: import("http").Server) => {
         connections.delete(agentId);
       }
       void updateGroupModesForAgent(agentId);
+      void publishAgentOffline(agentId);
     });
   });
+};
+
+const publishAgentOffline = async (agentId: string) => {
+  const dongles = await prisma.dongle.findMany({
+    where: { lastSeenAgentId: agentId },
+    select: { id: true },
+  });
+  const ts = new Date().toISOString();
+  for (const d of dongles) {
+    streamManager.publish(`dongle:${d.id}`, "presence", {
+      type: "presence",
+      dongle_id: d.id,
+      online: false,
+      agent_id: agentId,
+      seen_at: ts,
+    });
+  }
 };

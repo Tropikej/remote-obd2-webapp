@@ -2,6 +2,7 @@ import { ErrorCodes } from "@dashboard/shared";
 import type { GroupMode } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors/app-error";
+import { streamManager } from "./streams";
 
 const toResponse = (group: any) => ({
   id: group.id,
@@ -114,6 +115,12 @@ export const markGroupMode = async (groupId: string, mode: GroupMode) => {
   const updated = await prisma.dongleGroup.update({
     where: { id: groupId },
     data: { mode },
+  });
+  streamManager.publish(`group:${groupId}`, "group_state", {
+    type: "group_state",
+    group_id: groupId,
+    mode: updated.mode,
+    ts: new Date().toISOString(),
   });
   return toResponse(updated);
 };

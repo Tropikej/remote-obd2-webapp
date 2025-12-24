@@ -2,6 +2,7 @@ import { randomBytes, createHash } from "crypto";
 import { ErrorCodes } from "@dashboard/shared";
 import { prisma } from "../db";
 import { AppError } from "../errors/app-error";
+import { streamManager } from "./streams";
 
 type RegisterAgentInput = {
   userId: string;
@@ -173,6 +174,14 @@ export const reportDevices = async (agentId: string, devices: DeviceReport[]) =>
         lastSeenAgentId: agentId,
         lastSeenAt: now,
       },
+    });
+
+    streamManager.publish(`dongle:${record.id}`, "presence", {
+      type: "presence",
+      dongle_id: record.id,
+      online: true,
+      agent_id: agentId,
+      seen_at: now.toISOString(),
     });
 
     if (ownerProvided && ownerUserId && ownerUserId !== existing?.ownerUserId) {
