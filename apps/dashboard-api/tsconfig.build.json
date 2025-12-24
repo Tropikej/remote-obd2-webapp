@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@dashboard/shared": ["../../packages/shared/dist/index.d.ts"],
+      "@dashboard/shared/*": ["../../packages/shared/dist/*"]
+    }
+  },
+  "include": ["src"]
+}

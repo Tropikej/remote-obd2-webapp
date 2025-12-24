@@ -1,0 +1,37 @@
+{
+  "name": "obd2-dashboard",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace apps/dashboard-api",
+    "dev:web": "npm run dev --workspace apps/dashboard-web",
+    "dev:agent": "npm run dev --workspace apps/bridge-agent",
+    "build": "npm run build --workspaces",
+    "lint": "echo \"no lint configured\"",
+    "test": "echo \"no tests configured\"",
+    "test:rate-limit:signup": "node infra/scripts/test-rate-limit-signup.js",
+    "test:rate-limit:password-reset": "node infra/scripts/test-rate-limit-password-reset.js",
+    "test:rate-limit": "npm run test:rate-limit:signup && npm run test:rate-limit:password-reset",
+    "test:crypto": "npm run test:crypto --workspace apps/dashboard-api",
+    "test:control-plane": "node infra/scripts/test-control-plane.js",
+    "test:ui": "npm run test --workspace packages/ui",
+    "test:agent-renderer": "npm run test:renderer --workspace apps/bridge-agent",
+    "test:bridge-agent:discovery": "npm run test:discovery --workspace apps/bridge-agent",
+    "test:bridge-agent:control-ws": "npm run test:control-ws --workspace apps/bridge-agent",
+    "test:bridge-agent:api": "npm run test:api --workspace apps/bridge-agent",
+    "test:bridge-agent": "npm run test:bridge-agent:discovery && npm run test:bridge-agent:control-ws && npm run test:bridge-agent:api",
+    "test:data-plane": "node infra/scripts/test-data-plane.js",
+    "dev:stack": "node infra/scripts/dev-stack.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "playwright": "^1.57.0",
+    "prisma": "^5.22.0"
+  }
+}

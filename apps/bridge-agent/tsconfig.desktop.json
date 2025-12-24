@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "module": "CommonJS",
+    "baseUrl": ".",
+    "paths": {
+      "@dashboard/shared": [
+        "../../packages/shared/dist/index.d.ts"
+      ],
+      "@dashboard/shared/*": [
+        "../../packages/shared/dist/*"
+      ],
+      "@dashboard/ui": [
+        "../../packages/ui/src/index.ts"
+      ],
+      "@dashboard/ui/*": [
+        "../../packages/ui/src/*"
+      ],
+      "@dashboard/remp": [
+        "../../packages/remp/dist/index.d.ts"
+      ],
+      "@dashboard/remp/*": [
+        "../../packages/remp/dist/*"
+      ]
+    }
+  },
+  "include": [
+    "src/desktop/main.ts",
+    "src/desktop/preload.ts"
+  ]
+}

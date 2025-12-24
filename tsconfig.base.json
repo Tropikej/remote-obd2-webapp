@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "baseUrl": ".",
+    "paths": {
+      "@dashboard/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@dashboard/shared/*": [
+        "packages/shared/src/*"
+      ],
+      "@dashboard/ui": [
+        "packages/ui/src/index.ts"
+      ],
+      "@dashboard/ui/*": [
+        "packages/ui/src/*"
+      ],
+      "@dashboard/remp": [
+        "packages/remp/src/index.ts"
+      ],
+      "@dashboard/remp/*": [
+        "packages/remp/src/*"
+      ]
+    },
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "name": "@dashboard/bridge-agent",
+  "private": true,
+  "version": "0.0.0",
+  "description": "OBD2 Bridge Agent desktop tray app",
+  "author": "OBD2 Dashboard",
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "ts-node -r tsconfig-paths/register src/main.ts",
+    "build": "npm run build --workspace @dashboard/shared && npm run build --workspace @dashboard/ui && npm run build --workspace @dashboard/remp && tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev:desktop": "node scripts/dev-desktop.cjs",
+    "build:desktop:renderer": "vite build --config vite.desktop.config.ts",
+    "build:desktop:main": "tsc -p tsconfig.desktop.json",
+    "build:desktop": "npm -C ../.. run build --workspace @dashboard/shared && npm run build:desktop:renderer && npm run build:desktop:main",
+    "dev:renderer": "vite --config vite.desktop.config.ts --port 5174 --strictPort",
+    "package:win": "npm run build:desktop && electron-builder --win nsis",
+    "test:playwright": "playwright test -c playwright.config.ts",
+    "test:renderer": "vitest run --config vite.desktop.config.ts",
+    "test:pairing": "ts-node -r tsconfig-paths/register src/scripts/test-pairing.ts",
+    "test:discovery": "ts-node -r tsconfig-paths/register src/scripts/test-discovery-protocol.ts",
+    "test:control-ws": "ts-node -r tsconfig-paths/register src/scripts/test-control-ws.ts",
+    "test:api": "ts-node -r tsconfig-paths/register src/scripts/test-agent-api.ts"
+  },
+  "dependencies": {
+    "@dashboard/ui": "0.0.0",
+    "@dashboard/shared": "0.0.0",
+    "@dashboard/remp": "0.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.1.5",
+    "@testing-library/react": "^14.1.2",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.38",
+    "@types/react-dom": "^18.2.15",
+    "@types/ws": "^8.5.12",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "@playwright/test": "^1.49.0",
+    "electron": "28.1.0",
+    "electron-builder": "^24.13.3",
+    "jsdom": "^24.0.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0",
+    "vitest": "^1.6.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.obd2.dashboard.agent",
+    "productName": "OBD2 Bridge Agent",
+    "asar": true,
+    "files": [
+      "dist/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "directories": {
+      "output": "dist/installer"
+    },
+    "extraMetadata": {
+      "main": "dist/desktop/main.js"
+    },
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "module": "CommonJS",
+    "jsx": "react-jsx",
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@dashboard/shared": [
+        "../../packages/shared/dist/index.d.ts"
+      ],
+      "@dashboard/shared/*": [
+        "../../packages/shared/dist/*"
+      ],
+      "@dashboard/ui": [
+        "../../packages/ui/dist/index.d.ts"
+      ],
+      "@dashboard/ui/*": [
+        "../../packages/ui/dist/*"
+      ],
+      "@dashboard/remp": [
+        "../../packages/remp/dist/index.d.ts"
+      ],
+      "@dashboard/remp/*": [
+        "../../packages/remp/dist/*"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/desktop/renderer/**/*",
+    "src/desktop/renderer"
+  ]
+}

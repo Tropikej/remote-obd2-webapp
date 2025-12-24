@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  user
+  super_admin
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum OwnershipState {
+  UNCLAIMED
+  CLAIMED_ACTIVE
+  RESET_DETECTED
+  SECURITY_HOLD
+}
+
+enum GroupMode {
+  INACTIVE
+  ACTIVE
+  DEGRADED
+}
+
+enum CommandStatus {
+  queued
+  running
+  done
+  error
+  timeout
+}
+
+enum CanMode {
+  normal
+  listen_only
+  loopback
+  ext_loop
+}
+
+enum PairingStatus {
+  ACTIVE
+  SUCCESS
+  FAILED
+  EXPIRED
+  HOLD
+}
+
+enum EmailOutboxStatus {
+  queued
+  sent
+  failed
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.VarChar(320)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  role         UserRole   @default(user)
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  sessions                Session[]
+  agents                  Agent[]
+  ownedDongles            Dongle[]                  @relation("UserOwnedDongles")
+  commands                Command[]
+  auditLogs               AuditLog[]                @relation("AuditLogActor")
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  dongleGroups            DongleGroup[]
+  pairingSessions         PairingSession[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @db.VarChar(255)
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamp(6)
+  ip        String?  @db.VarChar(64)
+  userAgent String?  @map("user_agent") @db.VarChar(512)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Agent {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  agentName  String?  @map("agent_name") @db.VarChar(128)
+  hostname   String   @db.VarChar(255)
+  os         String   @db.VarChar(128)
+  version    String   @db.VarChar(64)
+  networkInterfaces Json? @map("network_interfaces") @db.JsonB
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamp(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokens AgentToken[]
+  lastSeenDongles Dongle[] @relation("LastSeenAgent")
+
+  @@index([userId])
+  @@map("agents")
+}
+
+model AgentToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  agentId   String   @map("agent_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamp(6)
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("agent_tokens")
+}
+
+model Dongle {
+  id             String         @id @default(uuid()) @db.Uuid
+  deviceId       String         @unique @map("device_id") @db.Char(16)
+  ownerUserId    String?        @map("owner_user_id") @db.Uuid
+  ownershipState OwnershipState @default(UNCLAIMED) @map("ownership_state")
+  fwBuild        String?        @map("fw_build") @db.VarChar(64)
+  lanIp          String?        @map("lan_ip") @db.VarChar(64)
+  udpPort        Int?           @map("udp_port")
+  capabilities   Int?           @map("capabilities")
+  protoVer       Int?           @map("proto_ver")
+  pairingState   Int?           @map("pairing_state")
+  pairingNonce   Bytes?         @map("pairing_nonce")
+  lastSeenAgentId String?       @map("last_seen_agent_id") @db.Uuid
+  lastSeenAt     DateTime?      @map("last_seen_at") @db.Timestamp(6)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  ownerUser User?        @relation("UserOwnedDongles", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  lastSeenAgent Agent?   @relation("LastSeenAgent", fields: [lastSeenAgentId], references: [id], onDelete: SetNull)
+  token     DongleToken?
+  canConfig CanConfig?
+  commands  Command[]
+  groupAsA  DongleGroup? @relation("DongleGroupA")
+  groupAsB  DongleGroup? @relation("DongleGroupB")
+  pairingSessions PairingSession[]
+
+  @@index([ownerUserId])
+  @@index([lastSeenAgentId])
+  @@map("dongles")
+}
+
+model DongleToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  dongleId   String   @unique @map("dongle_id") @db.Uuid
+  keyVersion Int      @map("key_version")
+  nonce      Bytes
+  ciphertext Bytes
+  tag        Bytes
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  dongle Dongle @relation(fields: [dongleId], references: [id], onDelete: Cascade)
+
+  @@map("dongle_tokens")
+}
+
+model DongleGroup {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  dongleAId String    @unique @map("dongle_a_id") @db.Uuid
+  dongleBId String    @unique @map("dongle_b_id") @db.Uuid
+  mode      GroupMode @default(INACTIVE)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dongleA Dongle @relation("DongleGroupA", fields: [dongleAId], references: [id], onDelete: Restrict)
+  dongleB Dongle @relation("DongleGroupB", fields: [dongleBId], references: [id], onDelete: Restrict)
+
+  @@unique([dongleAId, dongleBId])
+  @@index([userId])
+  @@map("dongle_groups")
+}
+
+model CanConfig {
+  id                 String   @id @default(uuid()) @db.Uuid
+  dongleId           String   @unique @map("dongle_id") @db.Uuid
+  bitrate            Int
+  samplePointPermille Int      @map("sample_point_permille")
+  mode               CanMode
+  useRaw             Boolean  @map("use_raw")
+  prescaler          Int
+  sjw                Int
+  tseg1              Int
+  tseg2              Int
+  autoRetx           Boolean  @map("auto_retx")
+  txPause            Boolean  @map("tx_pause")
+  protocolExc        Boolean  @map("protocol_exc")
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  dongle Dongle @relation(fields: [dongleId], references: [id], onDelete: Cascade)
+
+  @@map("can_configs")
+}
+
+model Command {
+  id         String        @id @default(uuid()) @db.Uuid
+  dongleId   String        @map("dongle_id") @db.Uuid
+  userId     String        @map("user_id") @db.Uuid
+  command    String        @db.VarChar(255)
+  status     CommandStatus @default(queued)
+  stdout     String        @default("") @db.Text
+  stderr     String        @default("") @db.Text
+  exitCode   Int?          @map("exit_code")
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  startedAt  DateTime?     @map("started_at") @db.Timestamp(6)
+  finishedAt DateTime?     @map("finished_at") @db.Timestamp(6)
+
+  dongle Dongle @relation(fields: [dongleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([dongleId, createdAt])
+  @@map("commands")
+}
+
+model PairingSession {
+  id         String         @id @default(uuid()) @db.Uuid
+  dongleId   String         @map("dongle_id") @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  status     PairingStatus  @default(ACTIVE)
+  expiresAt  DateTime       @map("expires_at") @db.Timestamp(6)
+  attempts   Int            @default(0)
+  holdUntil  DateTime?      @map("hold_until") @db.Timestamp(6)
+  holdReason String?        @map("hold_reason") @db.VarChar(128)
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  dongle Dongle @relation(fields: [dongleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([dongleId, status])
+  @@index([userId])
+  @@map("pairing_sessions")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(128)
+  targetType  String   @map("target_type") @db.VarChar(64)
+  targetId    String   @map("target_id") @db.VarChar(255)
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @map("user_agent") @db.VarChar(512)
+  details     Json?    @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  actorUser User? @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime @map("expires_at") @db.Timestamp(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime @map("expires_at") @db.Timestamp(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamp(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model EmailOutbox {
+  id        String            @id @default(uuid()) @db.Uuid
+  toEmail   String            @map("to_email") @db.VarChar(320)
+  template  String            @db.VarChar(128)
+  payload   Json              @db.JsonB
+  status    EmailOutboxStatus @default(queued)
+  attempts  Int               @default(0)
+  lastError String?           @map("last_error") @db.Text
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@map("email_outbox")
+}
