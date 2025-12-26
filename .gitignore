@@ -17,6 +17,7 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+apps/dashboard-api/.env.local
 
 # OS junk
 *.DS_Store
