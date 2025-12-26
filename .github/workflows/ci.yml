@@ -67,6 +67,9 @@ jobs:
             set -a && \
             source /etc/obd2-dashboard.env && \
             set +a && \
+            sudo install -m 0644 infra/systemd/obd2-dashboard-api.service /etc/systemd/system/obd2-dashboard-api.service && \
+            sudo systemctl daemon-reload && \
+            sudo systemctl enable obd2-dashboard-api && \
             sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env up -d && \
             for i in {1..20}; do \
               if sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env exec -T postgres pg_isready -U \"${POSTGRES_USER}\"; then \
