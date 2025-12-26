@@ -5,4 +5,5 @@ export * from "./api/dongles";
 export * from "./protocols/can-config";
 export * from "./protocols/discovery";
 export * from "./protocols/can-relay";
+export * from "./protocols/commands";
 export * from "./events/console";

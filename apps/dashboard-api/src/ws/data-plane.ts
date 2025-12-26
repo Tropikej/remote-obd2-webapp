@@ -91,9 +91,15 @@ const updateGroupModesForAgent = async (agentId: string) => {
     const aConnected = isAgentConnected(group.dongleA.lastSeenAgentId);
     const bConnected = isAgentConnected(group.dongleB.lastSeenAgentId);
     const desired = aConnected && bConnected ? "ACTIVE" : "DEGRADED";
-    if (group.mode !== desired) {
-      await markGroupMode(group.id, desired);
-    }
+    const offlineSide =
+      desired === "DEGRADED"
+        ? !aConnected && bConnected
+          ? "A"
+          : aConnected && !bConnected
+            ? "B"
+            : null
+        : null;
+    await markGroupMode(group.id, desired, { offlineSide });
   }
 };
 
@@ -177,9 +183,11 @@ const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => 
   const delivered = targetAgentId ? sendToAgent(targetAgentId, payload) : false;
   if (!delivered) {
     await bufferFrame(message.group_id, direction, payload);
-    await markGroupMode(group.id, "DEGRADED");
+    await markGroupMode(group.id, "DEGRADED", {
+      offlineSide: direction === "a_to_b" ? "B" : "A",
+    });
   } else {
-    await markGroupMode(group.id, "ACTIVE");
+    await markGroupMode(group.id, "ACTIVE", { offlineSide: null });
   }
 };
 

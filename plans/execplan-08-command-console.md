@@ -11,11 +11,11 @@ After this change, users can send allowlisted commands to a dongle through the d
 ## Progress
 
 - [x] (2025-12-22 16:57Z) Initial plan drafted from doc/new-dashboard-spec-v0.7.md.
-- [ ] Implement command API endpoints and database persistence.
-- [ ] Implement command allowlist and permission checks.
-- [ ] Implement agent REMP CMD_REQ and CMD_RSP handling with correlation IDs.
-- [ ] Stream command status updates to SSE and verify output handling.
-- [ ] Validate timeouts, error cases, and audit logging.
+- [x] (2025-12-24 15:27Z) Implement command API endpoints and database persistence.
+- [x] (2025-12-24 15:27Z) Implement command allowlist and permission checks.
+- [x] (2025-12-24 15:27Z) Implement agent REMP CMD_REQ and CMD_RSP handling with correlation IDs.
+- [x] (2025-12-24 15:27Z) Stream command status updates to SSE and verify output handling.
+- [x] (2025-12-24 15:27Z) Validate timeouts, error cases, and audit logging.
 
 ## Surprises & Discoveries
 
@@ -32,7 +32,7 @@ None yet.
 
 ## Outcomes & Retrospective
 
-Not started yet. This section will summarize command console behavior once implemented.
+Command console is now end-to-end: users enqueue allowlisted commands via `/api/v1/dongles/:id/commands`, commands persist in the database with ownership checks, dispatch to the last seen agent over the control WS, and enforce timeouts with server-side fallbacks. Agent responses (including chunks) update command records and stream `command_status` events to SSE with stdout/stderr, exit code, and timestamps. Audit logs capture enqueue metadata (command, args, timeout, actor IP/UA). Allowlist defaults cover `ifconfig`, `ip`, and `ping` with sane arg and timeout caps. Vitest covers validation, dispatch, status updates, and timeout behavior. **TODO:** run end-to-end with a real agent/dongle to validate control WS payloads and streamed outputs once hardware is available.
 
 ## Context and Orientation
 

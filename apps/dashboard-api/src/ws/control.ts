@@ -2,6 +2,7 @@ import type { IncomingMessage } from "http";
 import { createHash, randomUUID } from "crypto";
 import WebSocket, { WebSocketServer } from "ws";
 import { prisma } from "../db";
+import { handleAgentCommandUpdate } from "../services/commands";
 
 type AgentConnection = {
   agentId: string;
@@ -124,6 +125,13 @@ export const attachControlWs = (server: import("http").Server) => {
       const message = parseMessage(raw);
       if (!message || typeof message.type !== "string") {
         return;
+      }
+      if (
+        message.type === "command_response" ||
+        message.type === "command_status" ||
+        message.type === "command_chunk"
+      ) {
+        void handleAgentCommandUpdate(message as any);
       }
       if (typeof message.request_id === "string") {
         if (message.type.endsWith("_error")) {

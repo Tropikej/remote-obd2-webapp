@@ -1,6 +1,7 @@
 import { ErrorCodes } from "@dashboard/shared";
 import type { GroupMode } from "@prisma/client";
 import { prisma } from "../db";
+import { getRedis } from "../redis/client";
 import { AppError } from "../errors/app-error";
 import { streamManager } from "./streams";
 
@@ -107,19 +108,34 @@ export const activateGroup = async (groupId: string, userId: string, isAdmin: bo
   return toResponse(updated);
 };
 
-export const markGroupMode = async (groupId: string, mode: GroupMode) => {
+export const markGroupMode = async (
+  groupId: string,
+  mode: GroupMode,
+  options?: { offlineSide?: "A" | "B" | null }
+) => {
   const current = await prisma.dongleGroup.findUnique({ where: { id: groupId } });
-  if (!current || current.mode === mode) {
-    return current ? toResponse(current) : null;
+  if (!current) {
+    return null;
   }
-  const updated = await prisma.dongleGroup.update({
-    where: { id: groupId },
-    data: { mode },
-  });
+  const needsUpdate = current.mode !== mode;
+  const updated = needsUpdate
+    ? await prisma.dongleGroup.update({
+        where: { id: groupId },
+        data: { mode },
+      })
+    : current;
+  const redis = getRedis();
+  const [bufferedAtoB, bufferedBtoA] = await Promise.all([
+    redis.xlen(`group:${groupId}:a_to_b`),
+    redis.xlen(`group:${groupId}:b_to_a`),
+  ]);
   streamManager.publish(`group:${groupId}`, "group_state", {
     type: "group_state",
     group_id: groupId,
     mode: updated.mode,
+    offline_side: options?.offlineSide ?? null,
+    buffered_frames_a_to_b: bufferedAtoB ?? 0,
+    buffered_frames_b_to_a: bufferedBtoA ?? 0,
     ts: new Date().toISOString(),
   });
   return toResponse(updated);

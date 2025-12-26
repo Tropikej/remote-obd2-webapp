@@ -5,6 +5,7 @@ import { startPairingSession, submitPairing, unpairDongle } from "../services/pa
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../errors/app-error";
 import { ErrorCodes } from "@dashboard/shared";
+import { enqueueCommand, getCommandForUser } from "../services/commands";
 
 const router = Router();
 
@@ -121,6 +122,34 @@ router.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const result = await unpairDongle(req.params.id, req.user!.id, false);
+    res.json(result);
+  })
+);
+
+router.post(
+  "/:id/commands",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const isAdmin = req.user?.role === "super_admin";
+    const result = await enqueueCommand(req.params.id, req.user!.id, isAdmin, req.body, {
+      actorIp: req.ip,
+      actorUserAgent: req.get("user-agent"),
+    });
+    res.json(result);
+  })
+);
+
+router.get(
+  "/:id/commands/:commandId",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const isAdmin = req.user?.role === "super_admin";
+    const result = await getCommandForUser(
+      req.params.id,
+      req.params.commandId,
+      req.user!.id,
+      isAdmin
+    );
     res.json(result);
   })
 );

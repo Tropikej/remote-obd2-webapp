@@ -1,0 +1,22 @@
+[Unit]
+Description=OBD2 Dashboard API
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/obd2-dashboard.env
+WorkingDirectory=/opt/obd2-dashboard/apps/dashboard-api
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=5
+User=www-data
+Group=www-data
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

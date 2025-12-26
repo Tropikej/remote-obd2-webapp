@@ -17,6 +17,8 @@ After this change, the dashboard can stream live console data to the web UI via 
 - [x] (2025-12-24 14:45Z) Add console sampling for high rate streams without affecting data plane relay.
 - [x] (2025-12-24 14:45Z) Validate SSE behavior with tests (StreamManager replay/reset via vitest) and manual UI.
 - [x] (2025-12-24 14:45Z) Add automated SSE integration test (vitest) to assert replay via Last-Event-ID and stream_reset behavior.
+- [x] (2025-12-24 15:10Z) Harden console telemetry: emit end-to-end command_status events, include buffered/backlog metrics in group_state, and ensure gateways/proxies allow `/api/v1/streams/**` SSE (no buffering, correct timeouts) in staging/prod.
+- [x] (2025-12-24 15:20Z) Update the edge gateway (reverse proxy) config to disable buffering and extend timeouts for `/api/v1/streams/**` SSE endpoints; verify in staging that SSE stays connected under load.
 
 ## Surprises & Discoveries
 
@@ -36,7 +38,7 @@ After this change, the dashboard can stream live console data to the web UI via 
 
 ## Outcomes & Retrospective
 
-SSE endpoints now stream per-dongle and per-group console events with ring-buffer replay, Last-Event-ID resume, and stream_reset when history is unavailable. Presence and group state events are emitted from agent reports and group mode changes, CAN frames flow from the data-plane WS into streams, and sampling reduces only the SSE output when frame rates spike. Vitest covers Last-Event-ID replay/reset; manual console subscription works via the dashboard UI. Next steps: expand command_status emission once command APIs land and add richer group backlog metrics to group_state events.
+SSE endpoints now stream per-dongle and per-group console events with ring-buffer replay, Last-Event-ID resume, and stream_reset when history is unavailable. Presence and group state events are emitted from agent reports and group mode changes, CAN frames flow from the data-plane WS into streams, and sampling reduces only the SSE output when frame rates spike. Command status messages from agents now flow into dongle/group console streams, group_state events include backlog counts and offline side, and ops notes document proxy settings for `/api/v1/streams/**`. Vitest covers Last-Event-ID replay/reset plus command_status normalization and group_state backlog publishing; manual console subscription works via the dashboard UI.
 
 ## Context and Orientation
 

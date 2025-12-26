@@ -37,3 +37,6 @@ prisma/migrations/*.db-journal
 playwright-report/
 test-results/
 *.snap
+
+# SECRETS
+ci-secrets.md

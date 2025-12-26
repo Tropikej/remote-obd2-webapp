@@ -11,17 +11,17 @@ After this change, the dashboard can be deployed on a VPS with automated builds,
 ## Progress
 
 - [x] (2025-12-22 16:57Z) Initial plan drafted from doc/new-dashboard-spec-v0.7.md.
-- [ ] Add systemd service units and environment file conventions.
-- [ ] Configure Nginx for HTTPS, WS, and SSE with correct buffering and timeouts.
-- [ ] Implement health and readiness endpoints in the API.
-- [ ] Add GitHub Actions workflow for build, deploy, and migrations.
-- [ ] Document backup and rollback procedures and verify restore.
-- [ ] Add Redis setup guidance (local/staging/prod), include `REDIS_URL` in env files, and validate `/healthz` covers Redis.
-- [ ] Add Redis setup guidance (local/staging/prod), include `REDIS_URL` in env files, and validate `/healthz` covers Redis.
+- [x] (2025-12-24 15:35Z) Add systemd service units and environment file conventions.
+- [x] (2025-12-24 15:35Z) Configure Nginx for HTTPS, WS, and SSE with correct buffering and timeouts.
+- [x] (2025-12-24 15:35Z) Implement health and readiness endpoints in the API.
+- [x] (2025-12-24 15:35Z) Add GitHub Actions workflow for build, deploy, and migrations.
+- [x] (2025-12-24 15:35Z) Document backup and rollback procedures and verify restore (documented; staging run pending).
+- [x] (2025-12-24 15:35Z) Add Redis setup guidance (local/staging/prod), include `REDIS_URL` in env files, and validate `/readyz` covers Redis.
+- [ ] (2025-12-24 16:15Z) Wire CI/CD to auto-deploy on push to `main` using VPS secrets (SSH_HOST/USER/KEY, DEPLOY_PATH, DATABASE_URL, REDIS_URL); validate end-to-end by pushing to a staging branch that mimics main and confirming systemd restart + migration execution on the configured VPS.
 
 ## Surprises & Discoveries
 
-None yet.
+- Deploy job is workflow_dispatch-only to avoid failing without VPS secrets; set secrets before using.
 
 ## Decision Log
 
@@ -34,7 +34,7 @@ None yet.
 
 ## Outcomes & Retrospective
 
-Not started yet. This section will summarize deployment and ops readiness once implemented.
+Ops scaffolding is in place: systemd unit and env conventions under `infra/systemd`, full Nginx TLS/WS/SSE config under `infra/nginx`, health and readiness endpoints (`/healthz`, `/readyz`) validate Postgres and Redis connectivity, GitHub Actions workflow runs tests/build and provides a manual deploy job with migrations/restart, and deployment/backups are documented in `doc/ops-deploy.md`. Next step: execute a staging deploy to validate Nginx/systemd wiring and run a real pre-migration backup/restore drill.
 
 ## Context and Orientation
 

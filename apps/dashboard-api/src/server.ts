@@ -13,6 +13,7 @@ import { createSessionMiddleware } from "./session/store";
 import { ErrorCodes } from "@dashboard/shared";
 import { attachControlWs } from "./ws/control";
 import { attachDataPlaneWs } from "./ws/data-plane";
+import { healthHandler, readyHandler } from "./routes/health";
 
 const envCandidates = [
   path.resolve(__dirname, "..", ".env.local"),
@@ -38,9 +39,8 @@ app.use(requestLogger);
 app.use(createSessionMiddleware());
 app.use(attachUser);
 
-app.get("/healthz", (_req, res) => {
-  res.json({ status: "ok", service: "dashboard-api" });
-});
+app.get("/healthz", healthHandler);
+app.get("/readyz", readyHandler);
 
 app.use("/api/v1", requireCsrf, apiRouter);
 

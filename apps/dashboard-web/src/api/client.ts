@@ -120,6 +120,8 @@ export type CommandRequest = {
 export type CommandStatus = {
   command_id: string;
   status: "queued" | "running" | "ok" | "error" | "timeout" | "cancelled";
+  dongle_id?: string;
+  group_id?: string;
   started_at?: string | null;
   completed_at?: string | null;
   exit_code?: number | null;
