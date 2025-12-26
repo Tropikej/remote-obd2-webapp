@@ -13,6 +13,7 @@ Make Redis a first-class, mandatory dependency in production and development so 
 - [ ] Draft plan and requirements.
 - [ ] Implement environment validation and fail-fast for production.
 - [ ] Add dev guidance to run real Redis locally by default (e.g., docker container); remove mock fallback from normal runs.
+- [ ] Provide a simple local Redis setup (docker-compose or one-liner) so devs can validate end-to-end locally.
 - [ ] Add health/ready checks to surface Redis status (already present; extend to fail on prod).
 - [ ] Add tests covering prod fail-fast vs. dev mock fallback.
 
