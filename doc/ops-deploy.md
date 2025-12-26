@@ -6,8 +6,8 @@ This document describes how to deploy the dashboard API and web app on an Ubuntu
 
 - Ubuntu 22.04+ with sudo access
 - Node.js 20.x and npm installed
-- PostgreSQL running and reachable (`DATABASE_URL` set)
-- Redis running and reachable (`REDIS_URL` set)
+- PostgreSQL running and reachable (`DATABASE_URL` set) or provisioned via Docker Compose
+- Redis running and reachable (`REDIS_URL` set) or provisioned via Docker Compose
 - TLS certs available (e.g., via Let's Encrypt)
 
 ## Local Redis (dev)
@@ -27,7 +27,12 @@ Create `/etc/obd2-dashboard.env` (0600, root-owned) with:
 ```
 NODE_ENV=production
 PORT=3000
-DATABASE_URL=postgresql://user:pass@localhost:5432/obd2_dashboard
+POSTGRES_DB=obd2_dashboard
+POSTGRES_USER=obd2_user
+POSTGRES_PASSWORD=change-me
+POSTGRES_PORT=5432
+REDIS_PORT=6379
+DATABASE_URL=postgresql://obd2_user:change-me@localhost:5432/obd2_dashboard
 REDIS_URL=redis://localhost:6379
 SESSION_SECRET=change-me
 DONGLE_TOKEN_MASTER_KEY_V1=base64_32_bytes
@@ -46,11 +51,30 @@ npm ci
 npm run build
 ```
 
+## Data services (Postgres + Redis via Docker Compose)
+
+If you are not using managed Postgres/Redis, start the local services stack:
+
+```
+cd /opt/obd2-dashboard
+sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env up -d
+sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env ps
+```
+
 ## Database migrations
 
 ```
 cd /opt/obd2-dashboard
-npx prisma migrate deploy --schema=apps/dashboard-api/prisma/schema.prisma
+npx prisma migrate deploy --schema=prisma/schema.prisma
+```
+
+## Redis bootstrap
+
+Run the Redis bootstrap script after migrations to initialize schema metadata:
+
+```
+cd /opt/obd2-dashboard
+npm run redis:bootstrap --workspace apps/dashboard-api
 ```
 
 ## systemd

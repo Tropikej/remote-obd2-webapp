@@ -8,6 +8,8 @@
     "dev": "ts-node -r tsconfig-paths/register src/server.ts",
     "build": "npm run build --workspace @dashboard/shared && tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "redis:bootstrap": "node dist/scripts/redis-bootstrap.js",
+    "redis:bootstrap:dev": "ts-node -r tsconfig-paths/register src/scripts/redis-bootstrap.ts",
     "rotate-dongle-keys": "ts-node -r tsconfig-paths/register src/jobs/rotate-dongle-keys.ts",
     "test:agent-heartbeat": "ts-node -r tsconfig-paths/register src/scripts/test-agent-heartbeat.ts",
     "test:crypto": "ts-node -r tsconfig-paths/register src/scripts/validate-dongle-token-crypto.ts",

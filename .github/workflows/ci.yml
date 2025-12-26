@@ -45,7 +45,7 @@ jobs:
           npm ci
           npm run build
       - name: Archive artifacts
-        run: tar czf build.tar.gz apps packages package.json package-lock.json
+        run: tar czf build.tar.gz apps packages prisma infra package.json package-lock.json
       - name: Add SSH key
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -56,11 +56,29 @@ jobs:
       - name: Deploy on server
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "\
+            set -euo pipefail && \
             mkdir -p $DEPLOY_PATH && \
             tar xzf /tmp/obd2-dashboard-build.tar.gz -C $DEPLOY_PATH --strip-components=1 && \
             cd $DEPLOY_PATH && \
+            set -a && \
+            source /etc/obd2-dashboard.env && \
+            set +a && \
+            sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env up -d && \
+            for i in {1..20}; do \
+              if sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env exec -T postgres pg_isready -U \"${POSTGRES_USER}\"; then \
+                break; \
+              fi; \
+              sleep 2; \
+            done && \
+            for i in {1..20}; do \
+              if sudo docker compose -f infra/docker-compose.ops.yml --env-file /etc/obd2-dashboard.env exec -T redis redis-cli ping | grep -q PONG; then \
+                break; \
+              fi; \
+              sleep 2; \
+            done && \
             npm ci --omit=dev && \
-            npx prisma migrate deploy --schema=apps/dashboard-api/prisma/schema.prisma && \
+            npx prisma migrate deploy --schema=prisma/schema.prisma && \
+            npm run redis:bootstrap --workspace apps/dashboard-api && \
             sudo systemctl restart obd2-dashboard-api"
         env:
           NODE_ENV: production

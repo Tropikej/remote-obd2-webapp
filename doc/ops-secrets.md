@@ -29,6 +29,17 @@ Set a session secret to protect cookie signing:
 
     SESSION_SECRET=your-long-random-value
 
+## Database and Redis credentials
+
+When running Postgres and Redis locally on the VPS (via Docker Compose), set these values in `/etc/obd2-dashboard.env`:
+
+    POSTGRES_DB=obd2_dashboard
+    POSTGRES_USER=obd2_user
+    POSTGRES_PASSWORD=change-me
+    POSTGRES_PORT=5432
+    DATABASE_URL=postgresql://obd2_user:change-me@localhost:5432/obd2_dashboard
+    REDIS_URL=redis://localhost:6379
+
 ## SMTP (planned)
 
 SMTP delivery for password reset is planned in the auth plan. When implemented, expected values include:
