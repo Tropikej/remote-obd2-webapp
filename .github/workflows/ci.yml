@@ -62,7 +62,7 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "\
             set -euo pipefail && \
             mkdir -p $DEPLOY_PATH && \
-            tar xzf /tmp/obd2-dashboard-build.tar.gz -C $DEPLOY_PATH --strip-components=1 && \
+            tar xzf /tmp/obd2-dashboard-build.tar.gz -C $DEPLOY_PATH && \
             cd $DEPLOY_PATH && \
             set -a && \
             source /etc/obd2-dashboard.env && \
