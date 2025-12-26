@@ -12,17 +12,13 @@ This document describes how to deploy the dashboard API and web app on an Ubuntu
 
 ## Local Redis (dev)
 
-Run a local Redis container so dev matches production:
+Run local services so dev matches production:
 
 ```
-docker compose -f infra/docker-compose.redis.yml up -d
+npm run dev:services
 ```
 
-Then set:
-
-```
-REDIS_URL=redis://localhost:6379
-```
+This starts Postgres on `localhost:5434` and Redis on `localhost:6379`.
 
 ## Environment file
 

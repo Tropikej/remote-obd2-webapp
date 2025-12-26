@@ -25,8 +25,10 @@
     "test:bridge-agent": "npm run test:bridge-agent:discovery && npm run test:bridge-agent:control-ws && npm run test:bridge-agent:api",
     "test:data-plane": "node infra/scripts/test-data-plane.js",
     "dev:stack": "node infra/scripts/dev-stack.js",
-    "dev:redis": "docker compose -f infra/docker-compose.redis.yml up -d",
-    "dev:redis:down": "docker compose -f infra/docker-compose.redis.yml down"
+    "dev:services": "docker compose -f infra/docker-compose.dev.yml up -d",
+    "dev:services:down": "docker compose -f infra/docker-compose.dev.yml down",
+    "dev:redis": "docker compose -f infra/docker-compose.dev.yml up -d redis",
+    "dev:redis:down": "docker compose -f infra/docker-compose.dev.yml stop redis"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
