@@ -139,7 +139,13 @@ const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => 
 
   const targetAgentId =
     direction === "a_to_b" ? group.dongleB.lastSeenAgentId : group.dongleA.lastSeenAgentId;
-  const payload = {
+  const payload: {
+    type: "can_frame";
+    group_id: string;
+    dongle_id: string;
+    direction: "a_to_b" | "b_to_a";
+    frame: DataPlaneCanMessage["frame"] & { ts: string };
+  } = {
     type: "can_frame",
     group_id: message.group_id,
     dongle_id: message.dongle_id,
@@ -156,10 +162,15 @@ const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => 
     type: "can_frame",
     group_id: payload.group_id,
     dongle_id: payload.dongle_id,
-    direction: payload.direction === "a_to_b" ? "tx" : payload.direction === "b_to_a" ? "rx" : payload.direction,
+    direction:
+      payload.direction === "a_to_b"
+        ? "tx"
+        : payload.direction === "b_to_a"
+          ? "rx"
+          : payload.direction,
     bus: payload.frame.bus,
-    id: payload.frame.id ?? payload.frame.can_id,
-    can_id: payload.frame.can_id ?? payload.frame.id,
+    id: payload.frame.can_id,
+    can_id: payload.frame.can_id,
     is_extended: payload.frame.is_extended,
     dlc: payload.frame.dlc,
     data_hex: payload.frame.data_hex,
@@ -172,8 +183,8 @@ const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => 
     dongle_id: payload.dongle_id,
     direction: payload.direction,
     bus: payload.frame.bus,
-    id: payload.frame.id ?? payload.frame.can_id,
-    can_id: payload.frame.can_id ?? payload.frame.id,
+    id: payload.frame.can_id,
+    can_id: payload.frame.can_id,
     is_extended: payload.frame.is_extended,
     dlc: payload.frame.dlc,
     data_hex: payload.frame.data_hex,
