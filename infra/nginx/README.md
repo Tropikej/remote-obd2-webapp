@@ -18,3 +18,5 @@ location /api/v1/streams/ {
 ```
 
 See `infra/nginx/streams.conf` for a ready-to-use server block that applies these settings.
+
+Full TLS/WS/SSE config sample lives in `infra/nginx/obd2-dashboard.conf`. Replace `your.domain` and cert paths, ensure `/healthz` and `/readyz` proxy to the API, and set `root` to your built web app.
