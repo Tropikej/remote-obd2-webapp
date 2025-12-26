@@ -10,6 +10,20 @@ This document describes how to deploy the dashboard API and web app on an Ubuntu
 - Redis running and reachable (`REDIS_URL` set)
 - TLS certs available (e.g., via Let's Encrypt)
 
+## Local Redis (dev)
+
+Run a local Redis container so dev matches production:
+
+```
+docker compose -f infra/docker-compose.redis.yml up -d
+```
+
+Then set:
+
+```
+REDIS_URL=redis://localhost:6379
+```
+
 ## Environment file
 
 Create `/etc/obd2-dashboard.env` (0600, root-owned) with:
