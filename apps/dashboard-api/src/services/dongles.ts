@@ -1,9 +1,14 @@
 import { ErrorCodes } from "@dashboard/shared";
+import { OwnershipState } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors/app-error";
 
 export const listDonglesForUser = async (userId: string, isAdmin: boolean) => {
-  const where = isAdmin ? {} : { ownerUserId: userId };
+  const where = isAdmin
+    ? {}
+    : {
+        OR: [{ ownerUserId: userId }, { ownershipState: OwnershipState.UNCLAIMED }],
+      };
 
   return prisma.dongle.findMany({
     where,
@@ -21,7 +26,7 @@ export const getDongleForUser = async (dongleId: string, userId: string, isAdmin
     throw new AppError(ErrorCodes.DONGLE_NOT_FOUND, "Dongle not found.", 404);
   }
 
-  if (!isAdmin && dongle.ownerUserId !== userId) {
+  if (!isAdmin && dongle.ownerUserId && dongle.ownerUserId !== userId) {
     throw new AppError(ErrorCodes.DONGLE_OWNED_BY_OTHER, "Dongle not owned by user.", 403);
   }
 

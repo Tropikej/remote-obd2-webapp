@@ -5,6 +5,7 @@ import {
   AgentRegistration,
   DeviceReport,
   NetworkInterfaceSummary,
+  ReportedDeviceRecord,
   isAuthError,
   registerAgent,
   reportDevices,
@@ -16,6 +17,8 @@ import { applyCanConfigToDongle } from "./remp/can-config";
 import { startPairingMode, submitPairing } from "./remp/pairing";
 import { ControlConnection, ControlConnectionStatus, connectControlWs } from "./ws/control";
 import { connectDataPlaneWs, type DataPlaneClient } from "./ws/data-plane";
+
+const DEBUG_DISCOVERY = process.env.BRIDGE_AGENT_DEBUG_DISCOVERY === "1";
 
 type AgentState = {
   agentId?: string;
@@ -30,8 +33,19 @@ export type AgentStatus = {
   lastHeartbeatAt: string | null;
   discoveryEnabled: boolean;
   discoveryActive: boolean;
+  discoveredDevices: DiscoveryDeviceStatus[];
   needsLogin: boolean;
   lastError: string | null;
+};
+
+export type DiscoveryDeviceStatus = {
+  deviceId: string;
+  lanIp?: string | null;
+  udpPort?: number;
+  fwBuild?: string | null;
+  ownershipState?: string | null;
+  pairingState?: number | null;
+  lastSeenAt: string;
 };
 
 export type AgentOptions = {
@@ -63,6 +77,8 @@ type DeviceSnapshot = {
   report: DeviceReport;
   signature: string;
   lastSeenAt: number;
+  ownershipState?: string | null;
+  ownerUserId?: string | null;
 };
 
 type CanConfigApplyMessage = {
@@ -219,6 +235,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     lastHeartbeatAt: null,
     discoveryEnabled: true,
     discoveryActive: false,
+    discoveredDevices: [],
     needsLogin: true,
     lastError: null,
   };
@@ -273,6 +290,23 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
   const setStatus = (patch: Partial<AgentStatus>) => {
     status = { ...status, ...patch };
     emitter.emit("status", status);
+  };
+
+  const buildDiscoveryStatus = (): DiscoveryDeviceStatus[] =>
+    Array.from(devices.values())
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .map((entry) => ({
+        deviceId: entry.report.device_id,
+        lanIp: entry.report.lan_ip ?? null,
+        udpPort: entry.report.udp_port,
+        fwBuild: entry.report.fw_build ?? null,
+        ownershipState: entry.ownershipState ?? null,
+        pairingState: entry.report.pairing_state ?? null,
+        lastSeenAt: new Date(entry.lastSeenAt).toISOString(),
+      }));
+
+  const updateDiscoveryStatus = () => {
+    setStatus({ discoveredDevices: buildDiscoveryStatus() });
   };
 
   const persistConfig = async () => {
@@ -438,6 +472,11 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       if (!report) {
         return;
       }
+      if (DEBUG_DISCOVERY) {
+        console.log(
+          `[bridge-agent] discovery event device=${report.device_id} ip=${report.lan_ip ?? "-"} udp=${report.udp_port ?? "-"}`
+        );
+      }
       const signature = JSON.stringify(report);
       const interfaceName = event.interfaceInfo?.name ?? "unknown";
       const existing = devices.get(report.device_id);
@@ -459,6 +498,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
         signature,
         lastSeenAt: Date.now(),
       });
+      updateDiscoveryStatus();
     });
     setStatus({ discoveryActive: true });
   };
@@ -482,11 +522,29 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
         dirty = false;
         return;
       }
-      await reportDevices({
+      if (DEBUG_DISCOVERY) {
+        console.log(`[bridge-agent] reporting ${payload.length} discovery device(s)`);
+      }
+      const response = await reportDevices({
         apiBaseUrl,
         agentToken: state.agentToken,
         devices: payload,
       });
+      if (response?.devices?.length) {
+        for (const record of response.devices) {
+          const deviceId = record.device_id?.toLowerCase();
+          if (!deviceId) {
+            continue;
+          }
+          const snapshot = devices.get(deviceId);
+          if (!snapshot) {
+            continue;
+          }
+          snapshot.ownershipState = record.ownership_state ?? snapshot.ownershipState ?? null;
+          snapshot.ownerUserId = record.owner_user_id ?? snapshot.ownerUserId ?? null;
+        }
+        updateDiscoveryStatus();
+      }
       dirty = false;
     } catch (error) {
       if (isAuthError(error)) {
@@ -569,11 +627,14 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
 
   const clearCredentials = async () => {
     state = {};
+    devices.clear();
+    deviceInterfaces.clear();
     setStatus({
       agentId: null,
       wsStatus: "closed",
       lastHeartbeatAt: null,
       needsLogin: true,
+      discoveredDevices: [],
     });
     await persistConfig();
     stopControl();

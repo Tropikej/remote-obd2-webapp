@@ -252,7 +252,7 @@ All fields are little-endian unless stated.
 | `proto` | 1 | `0x01` (Discovery protocol v1) |
 | `msg_type` | 1 | `0x01 = DISCOVER`, `0x02 = ANNOUNCE` |
 | `flags` | 1 | reserved (0 in v1) |
-| `header_len` | 1 | bytes (fixed = 16 in v1) |
+| `header_len` | 1 | bytes (18 for v1, 16 for legacy) |
 | `payload_len` | 2 | payload size in bytes |
 | `seq` | 4 | sequence id (agent increments) |
 | `crc32` | 4 | CRC32 of header (with crc32=0) + payload |
@@ -286,6 +286,10 @@ Unknown TLVs must be ignored (forward compatible).
 - Packets with invalid CRC are ignored.
 - Packets with unknown `proto` are ignored.
 - `seq` is echoed by dongle in ANNOUNCE (as received) when possible (optional in v1 firmware).
+
+### 10.5 Discovery diagnostics
+- Set `BRIDGE_AGENT_DEBUG_DISCOVERY=1` to log interfaces, bind port, decode failures, and discovery reports.
+- Agent binds to the configured discovery port when possible and falls back to an ephemeral port if the bind fails.
 
 ---
 
@@ -564,6 +568,8 @@ Examples of `code`:
 - `PUT  /api/v1/dongles/:id/can-config`
 - `POST /api/v1/dongles/:id/commands`
 - `GET  /api/v1/dongles/:id/commands/:command_id`
+
+`GET /api/v1/dongles` returns dongles owned by the user plus unclaimed dongles visible for pairing.
 
 **Pairing-mode start (request)**
 ```json

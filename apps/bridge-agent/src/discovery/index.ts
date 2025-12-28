@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import dgram from "dgram";
 import os from "os";
+import type { AddressInfo } from "net";
 import {
   AnnouncePayload,
   decodeAnnounce,
@@ -32,6 +33,7 @@ export type DiscoveryScanner = EventEmitter & {
 };
 
 const EXCLUDED_PREFIXES = ["tun", "tap", "wg", "utun", "ppp", "docker", "br-", "vbox", "vmnet"];
+const DEBUG_DISCOVERY = process.env.BRIDGE_AGENT_DEBUG_DISCOVERY === "1";
 
 const ipToInt = (ip: string) =>
   ip
@@ -94,11 +96,19 @@ const findInterfaceForIp = (interfaces: InterfaceInfo[], ip: string) => {
 
 export const startDiscovery = (config: DiscoveryConfig): DiscoveryScanner => {
   const emitter = new EventEmitter() as DiscoveryScanner;
-  const socket = dgram.createSocket("udp4");
+  const createSocket = () => dgram.createSocket({ type: "udp4", reuseAddr: true });
+  let socket = createSocket();
   let intervalTimer: NodeJS.Timeout | null = null;
   let interfaces: InterfaceInfo[] = [];
   let seq = 1;
   let warnedNoInterfaces = false;
+  let stopped = false;
+
+  const logDebug = (message: string) => {
+    if (DEBUG_DISCOVERY) {
+      console.log(message);
+    }
+  };
 
   const scan = () => {
     interfaces = enumerateInterfaces();
@@ -110,6 +120,12 @@ export const startDiscovery = (config: DiscoveryConfig): DiscoveryScanner => {
       return;
     }
     warnedNoInterfaces = false;
+    if (DEBUG_DISCOVERY) {
+      const summary = interfaces
+        .map((iface) => `${iface.name} ${iface.address} -> ${iface.broadcast}`)
+        .join(" | ");
+      logDebug(`[bridge-agent] discovery interfaces: ${summary}`);
+    }
     const packet = encodeDiscover(seq++);
     const targets = new Set(interfaces.map((iface) => iface.broadcast));
     for (const broadcast of targets) {
@@ -121,41 +137,101 @@ export const startDiscovery = (config: DiscoveryConfig): DiscoveryScanner => {
     }
   };
 
-  socket.on("message", (msg, rinfo) => {
-    let payload: AnnouncePayload;
+  const attachSocketHandlers = () => {
+    socket.on("message", (msg, rinfo) => {
+      let payload: AnnouncePayload;
+      try {
+        payload = decodeAnnounce(msg);
+      } catch (error) {
+        if (DEBUG_DISCOVERY) {
+          const reason = (error as Error).message;
+          logDebug(
+            `[bridge-agent] discovery decode failed from ${rinfo.address}:${rinfo.port} (${msg.length} bytes): ${reason}`
+          );
+        }
+        return;
+      }
+
+      const deviceId = payload.deviceId?.toLowerCase();
+      if (!deviceId) {
+        if (DEBUG_DISCOVERY) {
+          logDebug(`[bridge-agent] discovery announce missing device_id from ${rinfo.address}`);
+        }
+        return;
+      }
+
+      const sourceIp = rinfo.address;
+      const interfaceInfo = findInterfaceForIp(interfaces, sourceIp);
+
+      const normalized: AnnouncePayload = {
+        ...payload,
+        deviceId,
+        lanIp: payload.lanIp || sourceIp,
+      };
+
+      if (DEBUG_DISCOVERY) {
+        const ifaceName = interfaceInfo?.name ?? "unknown";
+        logDebug(
+          `[bridge-agent] discovery announce device=${deviceId} ip=${normalized.lanIp} iface=${ifaceName}`
+        );
+      }
+
+      emitter.emit("dongleDiscovered", {
+        payload: normalized,
+        sourceIp,
+        interfaceInfo,
+        receivedAt: new Date(),
+      } satisfies DiscoveryEvent);
+    });
+
+    socket.on("error", (error) => {
+      console.warn(`[bridge-agent] discovery socket error: ${error.message}`);
+    });
+  };
+
+  const bindSocket = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        socket.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        socket.off("error", onError);
+        resolve();
+      };
+      socket.once("error", onError);
+      socket.once("listening", onListening);
+      socket.bind(port);
+    });
+
+  const ensureBound = async () => {
     try {
-      payload = decodeAnnounce(msg);
+      await bindSocket(config.port);
+      logDebug(`[bridge-agent] discovery bound to udp ${config.port}`);
     } catch (error) {
-      return;
+      const message = (error as Error).message;
+      console.warn(
+        `[bridge-agent] discovery bind ${config.port} failed: ${message}; falling back to ephemeral port`
+      );
+      socket.removeAllListeners();
+      socket.close();
+      socket = createSocket();
+      attachSocketHandlers();
+      await bindSocket(0);
+      const addr = socket.address();
+      const port =
+        typeof addr === "object" && addr !== null ? (addr as AddressInfo).port : 0;
+      logDebug(`[bridge-agent] discovery bound to udp ${port}`);
     }
 
-    const deviceId = payload.deviceId?.toLowerCase();
-    if (!deviceId) {
-      return;
+    if (stopped) {
+      socket.close();
     }
+  };
 
-    const sourceIp = rinfo.address;
-    const interfaceInfo = findInterfaceForIp(interfaces, sourceIp);
+  attachSocketHandlers();
 
-    const normalized: AnnouncePayload = {
-      ...payload,
-      deviceId,
-      lanIp: payload.lanIp || sourceIp,
-    };
-
-    emitter.emit("dongleDiscovered", {
-      payload: normalized,
-      sourceIp,
-      interfaceInfo,
-      receivedAt: new Date(),
-    } satisfies DiscoveryEvent);
-  });
-
-  socket.on("error", (error) => {
-    console.warn(`[bridge-agent] discovery socket error: ${error.message}`);
-  });
-
-  socket.bind(0, () => {
+  void ensureBound().then(() => {
     socket.setBroadcast(true);
     scan();
     intervalTimer = setInterval(scan, config.intervalMs);
@@ -163,6 +239,7 @@ export const startDiscovery = (config: DiscoveryConfig): DiscoveryScanner => {
 
   emitter.scan = scan;
   emitter.stop = async () => {
+    stopped = true;
     if (intervalTimer) {
       clearInterval(intervalTimer);
       intervalTimer = null;

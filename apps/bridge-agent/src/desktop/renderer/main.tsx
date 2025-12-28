@@ -16,6 +16,7 @@ const ensureDevAgentApi = () => {
     lastHeartbeatAt: null,
     discoveryEnabled: true,
     discoveryActive: false,
+    discoveredDevices: [],
     needsLogin: true,
     lastError: null,
   };

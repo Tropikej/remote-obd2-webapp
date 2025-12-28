@@ -12,6 +12,7 @@ const baseStatus: AgentStatusPayload = {
   lastHeartbeatAt: null,
   discoveryEnabled: true,
   discoveryActive: false,
+  discoveredDevices: [],
   needsLogin: true,
   lastError: null,
 };
@@ -79,4 +80,29 @@ test("renders status view when logged in", async () => {
   expect(await screen.findByText("Agent status and controls.")).toBeInTheDocument();
   expect(screen.getByText("Agent ID: agent-123")).toBeInTheDocument();
   expect(screen.getByText("Connected")).toBeInTheDocument();
+});
+
+test("renders discovered devices in discovery card", async () => {
+  const loggedInStatus: AgentStatusPayload = {
+    ...baseStatus,
+    needsLogin: false,
+    agentId: "agent-123",
+    wsStatus: "open",
+    discoveredDevices: [
+      {
+        deviceId: "0011223344556677",
+        lanIp: "192.168.1.50",
+        udpPort: 16000,
+        fwBuild: "H753-2025-12-28",
+        ownershipState: "CLAIMED_ACTIVE",
+        pairingState: 0,
+        lastSeenAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await renderApp(loggedInStatus);
+
+  expect(await screen.findByText("0011223344556677")).toBeInTheDocument();
+  expect(screen.getByText("Owned")).toBeInTheDocument();
+  expect(screen.getByText("Pairing idle")).toBeInTheDocument();
 });

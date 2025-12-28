@@ -32,6 +32,70 @@ type ApiResponse = {
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
 
+const addUnique = (items: string[], value: string | null) => {
+  if (!value) {
+    return;
+  }
+  if (!items.includes(value)) {
+    items.push(value);
+  }
+};
+
+const addVariant = (items: string[], base: URL, host: string, port?: string) => {
+  const next = new URL(base.toString());
+  next.hostname = host;
+  if (port !== undefined) {
+    next.port = port;
+  }
+  addUnique(items, normalizeBaseUrl(next.toString()));
+};
+
+const buildFallbackUrls = (value: string) => {
+  const normalized = normalizeBaseUrl(value);
+  const urls: string[] = [normalized];
+  try {
+    const url = new URL(normalized);
+    const isLocal =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
+    if (isLocal) {
+      addVariant(urls, url, "localhost", url.port || undefined);
+      addVariant(urls, url, "127.0.0.1", url.port || undefined);
+      addVariant(urls, url, "::1", url.port || undefined);
+    }
+    const port = url.port || (url.protocol === "https:" ? "443" : "80");
+    const portNum = Number(port);
+    if (isLocal && Number.isFinite(portNum)) {
+      const start = portNum >= 3000 && portNum <= 3009 ? 3000 : portNum;
+      for (let candidate = start; candidate < start + 10; candidate += 1) {
+        const candidatePort = String(candidate);
+        addVariant(urls, url, "localhost", candidatePort);
+        addVariant(urls, url, "127.0.0.1", candidatePort);
+        addVariant(urls, url, "::1", candidatePort);
+      }
+    }
+  } catch (error) {
+    return urls;
+  }
+  return urls;
+};
+
+const fetchWithFallback = async (
+  baseUrls: string[],
+  path: string,
+  options: RequestInit
+) => {
+  let lastError: unknown = null;
+  for (const baseUrl of baseUrls) {
+    try {
+      return await fetch(`${baseUrl}${path}`, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`Request ${path} failed after trying ${baseUrls.join(", ")}: ${message}`);
+};
+
 const parseJson = (text: string) => {
   try {
     return JSON.parse(text);
@@ -51,16 +115,23 @@ const extractSessionCookie = (setCookie: string | null) => {
 const createSessionClient = (apiBaseUrl: string): SessionClient => {
   let cookie: string | null = null;
 
+  const baseUrls = buildFallbackUrls(apiBaseUrl);
+
   const request = async (path: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers || {});
     if (cookie) {
       headers.set("Cookie", cookie);
     }
 
-    const res = await fetch(`${apiBaseUrl}${path}`, {
-      ...options,
-      headers,
-    });
+    let res: Response;
+    try {
+      res = await fetchWithFallback(baseUrls, path, {
+        ...options,
+        headers,
+      });
+    } catch (error) {
+      throw new Error(`Request ${path} failed: ${(error as Error).message}`);
+    }
 
     const setCookie = res.headers.get("set-cookie");
     const nextCookie = extractSessionCookie(setCookie);
@@ -146,6 +217,17 @@ export type ReportDevicesInput = {
   devices: DeviceReport[];
 };
 
+export type ReportedDeviceRecord = {
+  id: string;
+  device_id: string;
+  ownership_state?: string;
+  owner_user_id?: string | null;
+};
+
+export type ReportDevicesResponse = {
+  devices: ReportedDeviceRecord[];
+};
+
 export const registerAgent = async (input: RegisterAgentInput): Promise<AgentRegistration> => {
   const apiBaseUrl = normalizeBaseUrl(input.apiBaseUrl);
   const session = createSessionClient(apiBaseUrl);
@@ -194,7 +276,10 @@ export const registerAgent = async (input: RegisterAgentInput): Promise<AgentReg
 
 export const sendHeartbeat = async (input: HeartbeatInput) => {
   const apiBaseUrl = normalizeBaseUrl(input.apiBaseUrl);
-  const res = await fetch(`${apiBaseUrl}/api/v1/agents/heartbeat`, {
+  const res = await fetchWithFallback(
+    buildFallbackUrls(apiBaseUrl),
+    "/api/v1/agents/heartbeat",
+    {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -207,7 +292,8 @@ export const sendHeartbeat = async (input: HeartbeatInput) => {
       version: input.version,
       network_interfaces: input.networkInterfaces,
     }),
-  });
+    }
+  );
 
   const text = await res.text();
   const body = parseJson(text);
@@ -222,9 +308,14 @@ export const sendHeartbeat = async (input: HeartbeatInput) => {
   return body;
 };
 
-export const reportDevices = async (input: ReportDevicesInput) => {
+export const reportDevices = async (
+  input: ReportDevicesInput
+): Promise<ReportDevicesResponse> => {
   const apiBaseUrl = normalizeBaseUrl(input.apiBaseUrl);
-  const res = await fetch(`${apiBaseUrl}/api/v1/agents/devices/report`, {
+  const res = await fetchWithFallback(
+    buildFallbackUrls(apiBaseUrl),
+    "/api/v1/agents/devices/report",
+    {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -233,7 +324,8 @@ export const reportDevices = async (input: ReportDevicesInput) => {
     body: JSON.stringify({
       devices: input.devices,
     }),
-  });
+    }
+  );
 
   const text = await res.text();
   const body = parseJson(text);
@@ -241,7 +333,7 @@ export const reportDevices = async (input: ReportDevicesInput) => {
     throw new ApiError(body?.message || "Device report failed.", res.status, body || undefined);
   }
 
-  return body;
+  return (body || { devices: [] }) as ReportDevicesResponse;
 };
 
 export const isAuthError = (error: unknown) => {

@@ -31,7 +31,12 @@ envCandidates.forEach((p) => {
 });
 
 const app = express();
-const port = Number(process.env.PORT) || 3000;
+const basePort = Number(process.env.PORT) || 3000;
+const allowFallback =
+  !process.env.PORT || (process.env.NODE_ENV && process.env.NODE_ENV !== "production");
+const portCandidates = allowFallback
+  ? Array.from({ length: 10 }, (_, idx) => basePort + idx)
+  : [basePort];
 
 app.set("trust proxy", 1);
 
@@ -60,6 +65,24 @@ const server = http.createServer(app);
 attachControlWs(server);
 attachDataPlaneWs(server);
 
-server.listen(port, () => {
-  console.log(`[dashboard-api] listening on http://localhost:${port}`);
-});
+const listenWithFallback = (index = 0) => {
+  const port = portCandidates[index];
+  server.removeAllListeners("error");
+  server.removeAllListeners("listening");
+
+  server.once("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE" && index + 1 < portCandidates.length) {
+      console.warn(`[dashboard-api] port ${port} in use, trying ${portCandidates[index + 1]}`);
+      listenWithFallback(index + 1);
+      return;
+    }
+    throw error;
+  });
+
+  server.once("listening", () => {
+    console.log(`[dashboard-api] listening on http://localhost:${port}`);
+  });
+  server.listen(port);
+};
+
+listenWithFallback();

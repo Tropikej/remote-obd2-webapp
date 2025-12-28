@@ -1,4 +1,4 @@
-import { Stack, Typography } from "@mui/material";
+import { Divider, Stack, Typography } from "@mui/material";
 import {
   AppShell,
   AppTextField,
@@ -15,6 +15,55 @@ const formatTimestamp = (value: string | null) => {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
+const formatOwnershipLabel = (value?: string | null) => {
+  if (!value) {
+    return "Ownership unknown";
+  }
+  if (value.includes("UNCLAIMED")) {
+    return "Unclaimed";
+  }
+  if (value.includes("SECURITY")) {
+    return "Security hold";
+  }
+  if (value.includes("CLAIMED")) {
+    return "Owned";
+  }
+  return value;
+};
+
+const ownershipTone = (value?: string | null): "success" | "warning" | "neutral" => {
+  if (!value) {
+    return "neutral";
+  }
+  if (value.includes("ACTIVE")) {
+    return "success";
+  }
+  if (value.includes("SECURITY")) {
+    return "warning";
+  }
+  return "neutral";
+};
+
+const formatPairingLabel = (value?: number | null) => {
+  if (value === 1) {
+    return "Pairing active";
+  }
+  if (value === 0) {
+    return "Pairing idle";
+  }
+  return "Pairing unknown";
+};
+
+const pairingTone = (value?: number | null): "success" | "warning" | "neutral" => {
+  if (value === 1) {
+    return "warning";
+  }
+  if (value === 0) {
+    return "neutral";
+  }
+  return "neutral";
 };
 
 export const App = () => {
@@ -64,6 +113,7 @@ export const App = () => {
   }, [status]);
 
   const wsLabel = status?.wsStatus === "open" ? "Connected" : "Disconnected";
+  const discoveredDevices = status?.discoveredDevices ?? [];
 
   if (!status) {
     return (
@@ -140,6 +190,39 @@ export const App = () => {
             <Typography color="text.secondary">
               Scanner: {status.discoveryActive ? "Active" : "Paused"}
             </Typography>
+            <Typography color="text.secondary">
+              Devices: {discoveredDevices.length}
+            </Typography>
+            {discoveredDevices.length === 0 ? (
+              <Typography color="text.secondary">
+                No dongles discovered on this network yet.
+              </Typography>
+            ) : (
+              <Stack spacing={1} divider={<Divider flexItem />}>
+                {discoveredDevices.map((device) => (
+                  <Stack key={device.deviceId} spacing={0.5}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2">{device.deviceId}</Typography>
+                      <StatusChip
+                        label={formatOwnershipLabel(device.ownershipState)}
+                        tone={ownershipTone(device.ownershipState)}
+                      />
+                      <StatusChip
+                        label={formatPairingLabel(device.pairingState)}
+                        tone={pairingTone(device.pairingState)}
+                      />
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary">
+                      LAN: {device.lanIp ?? "unknown"} | UDP: {device.udpPort ?? "?"} | FW:{" "}
+                      {device.fwBuild ?? "unknown"}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Last seen: {formatTimestamp(device.lastSeenAt)}
+                    </Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
           </Stack>
         </InfoCard>
         {status.lastError ? (

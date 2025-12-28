@@ -78,7 +78,14 @@ router.post(
 
     const records = await reportDevices(req.agent!.id, devices);
     console.log(`[agent] devices_report agent_id=${req.agent!.id} count=${records.length}`);
-    res.json({ devices: records.map((record) => ({ id: record.id, device_id: record.deviceId })) });
+    res.json({
+      devices: records.map((record) => ({
+        id: record.id,
+        device_id: record.deviceId,
+        ownership_state: record.ownershipState,
+        owner_user_id: record.ownerUserId ?? null,
+      })),
+    });
   })
 );
 
