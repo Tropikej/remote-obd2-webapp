@@ -497,6 +497,8 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
         report,
         signature,
         lastSeenAt: Date.now(),
+        ownershipState: existing?.ownershipState ?? null,
+        ownerUserId: existing?.ownerUserId ?? null,
       });
       updateDiscoveryStatus();
     });
