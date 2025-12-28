@@ -16,6 +16,7 @@ After this change, the Bridge Agent can register with the Cloud API, maintain a 
 - [x] (2025-12-23 10:02Z) Implement UDP discovery protocol encode and decode with CRC32.
 - [x] (2025-12-23 10:02Z) Implement multi NIC broadcast rules and device merge by device ID.
 - [x] (2025-12-23 10:02Z) Report discovered dongles to the API and verify end to end.
+- [x] (2025-12-29 10:10Z) Hardware discovery validation completed (see plans/execplan-16-bridge-agent-discovery-hardware-validation.md).
 
 ## Surprises & Discoveries
 
@@ -29,10 +30,13 @@ After this change, the Bridge Agent can register with the Cloud API, maintain a 
 - Decision: Store the agent token locally using the agent's existing config storage mechanism and never log the token value.
   Rationale: The token is a secret and must not appear in logs, while persistence is needed for reconnects.
   Date/Author: 2025-12-22 / Codex
+- Decision: Track hardware discovery validation in a dedicated ExecPlan.
+  Rationale: The validation requires embedded firmware access and packet capture evidence beyond this repo.
+  Date/Author: 2025-01-06 / Codex
 
 ## Outcomes & Retrospective
 
-Bridge agent now registers via API login, stores its token locally, runs UDP discovery per eligible interface, and reports merged device snapshots to the API on a cadence. Control WebSocket support is in place with heartbeat + reconnect, and protocol tests validate CRC enforcement plus ANNOUNCE parsing; API registration/report and control WS harness tests now exercise the new flows.
+Bridge agent now registers via API login, stores its token locally, runs UDP discovery per eligible interface, and reports merged device snapshots to the API on a cadence. Control WebSocket support is in place with heartbeat + reconnect, and protocol tests validate CRC enforcement plus ANNOUNCE parsing; API registration/report and control WS harness tests now exercise the new flows. Hardware discovery validation with real firmware is complete, with ANNOUNCE packets decoded and dongles visible in the UI with ownership state.
 
 ## Context and Orientation
 
@@ -100,3 +104,4 @@ In `apps/bridge-agent/src/discovery/index.ts`, define `startDiscovery(scannerCon
 In `apps/bridge-agent/src/ws/control.ts`, define `connectControlWs({ agentId, token, apiUrl })` returning an object with `send(message)` and `close()` methods, plus a `status` event emitter.
 
 Plan change note: Initial version created from doc/new-dashboard-spec-v0.7.md on 2025-12-22.
+Plan change note: Linked hardware discovery validation to plans/execplan-16-bridge-agent-discovery-hardware-validation.md on 2025-01-06.
