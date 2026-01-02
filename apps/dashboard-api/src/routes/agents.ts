@@ -4,6 +4,8 @@ import { registerAgent, reportDevices, updateHeartbeat } from "../services/agent
 import { requireAuth } from "../middleware/auth";
 import { requireAgent } from "../middleware/agent-auth";
 import { AppError } from "../errors/app-error";
+import { prisma } from "../db";
+import { getDecryptedDongleToken } from "../services/dongle-tokens";
 
 const router = Router();
 
@@ -86,6 +88,25 @@ router.post(
         owner_user_id: record.ownerUserId ?? null,
       })),
     });
+  })
+);
+
+router.get(
+  "/dongles/:id/token",
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    const dongle = await prisma.dongle.findUnique({ where: { id: req.params.id } });
+    if (!dongle || dongle.lastSeenAgentId !== req.agent!.id) {
+      throw new AppError(ErrorCodes.DONGLE_NOT_FOUND, "Dongle not found.", 404);
+    }
+    if (!dongle.ownerUserId) {
+      throw new AppError(ErrorCodes.NOT_FOUND, "Dongle token not found.", 404);
+    }
+    const token = await getDecryptedDongleToken(dongle.id, dongle.ownerUserId);
+    if (!token) {
+      throw new AppError(ErrorCodes.NOT_FOUND, "Dongle token not found.", 404);
+    }
+    res.json({ dongle_id: dongle.id, token });
   })
 );
 

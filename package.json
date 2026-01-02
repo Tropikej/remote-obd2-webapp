@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "npm run dev:services && npm run dev:stack",
     "dev:api": "npm run dev --workspace apps/dashboard-api",
     "dev:web": "npm run dev --workspace apps/dashboard-web",
     "dev:agent": "npm run dev --workspace apps/bridge-agent",
@@ -28,7 +29,14 @@
     "dev:services": "docker compose -f infra/docker-compose.dev.yml up -d",
     "dev:services:down": "docker compose -f infra/docker-compose.dev.yml down",
     "dev:redis": "docker compose -f infra/docker-compose.dev.yml up -d redis",
-    "dev:redis:down": "docker compose -f infra/docker-compose.dev.yml stop redis"
+    "dev:redis:down": "docker compose -f infra/docker-compose.dev.yml stop redis",
+    "e2e:up": "docker compose -f infra/docker-compose.e2e.yml up -d --build",
+    "e2e:prepare": "node infra/scripts/e2e-wait.js && docker compose -f infra/docker-compose.e2e.yml exec -T api sh -c \"npx prisma migrate deploy --schema=prisma/schema.prisma && npx prisma db seed --schema=prisma/schema.prisma\"",
+    "e2e:test": "npm run test --workspace apps/dashboard-e2e",
+    "e2e:down": "docker compose -f infra/docker-compose.e2e.yml down"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

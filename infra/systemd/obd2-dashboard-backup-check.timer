@@ -1,0 +1,9 @@
+[Unit]
+Description=OBD2 Dashboard Backup Integrity Check (weekly)
+
+[Timer]
+OnCalendar=Sun 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

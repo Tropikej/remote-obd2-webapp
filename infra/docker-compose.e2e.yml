@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:15
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_PASSWORD: dashboard
+      POSTGRES_USER: dashboard
+      POSTGRES_DB: dashboard-postgres
+    volumes:
+      - dashboard-postgres-e2e:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - dashboard-redis-e2e:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/dashboard-api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://dashboard:dashboard@postgres:5432/dashboard-postgres?schema=public
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: e2e-session-secret
+      SESSION_COOKIE_SECURE: "false"
+      DISABLE_RATE_LIMITS: "true"
+    depends_on:
+      - postgres
+      - redis
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/dashboard-web/Dockerfile
+    volumes:
+      - dashboard-web-dist:/shared
+    depends_on:
+      - api
+
+  nginx:
+    image: nginx:1.25
+    ports:
+      - "8080:80"
+    volumes:
+      - dashboard-web-dist:/usr/share/nginx/html:ro
+      - ./nginx/obd2-dashboard.e2e.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web
+
+volumes:
+  dashboard-postgres-e2e:
+  dashboard-redis-e2e:
+  dashboard-web-dist:

@@ -34,11 +34,14 @@ export type CommandStatusEvent = {
   status: "queued" | "running" | "ok" | "error" | "timeout" | "cancelled";
   dongle_id?: string;
   group_id?: string;
+  command_target?: "agent" | "dongle";
+  command_source?: "web" | "agent" | "system";
   started_at?: string | null;
   completed_at?: string | null;
   exit_code?: number | null;
   stdout?: string;
   stderr?: string;
+  truncated?: boolean;
 };
 
 export type GroupStateEvent = {

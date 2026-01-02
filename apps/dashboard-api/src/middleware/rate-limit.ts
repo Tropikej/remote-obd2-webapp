@@ -8,6 +8,10 @@ type RateLimitOptions = {
 };
 
 export const createRateLimiter = (options: RateLimitOptions) => {
+  if (process.env.DISABLE_RATE_LIMITS === "true" || process.env.DISABLE_RATE_LIMITS === "1") {
+    return (_req: any, _res: any, next: any) => next();
+  }
+
   return rateLimit({
     windowMs: options.windowMs,
     max: options.max,

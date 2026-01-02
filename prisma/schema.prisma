@@ -38,6 +38,17 @@ enum CommandStatus {
   timeout
 }
 
+enum CommandTarget {
+  agent
+  dongle
+}
+
+enum CommandSource {
+  web
+  agent
+  system
+}
+
 enum CanMode {
   normal
   listen_only
@@ -217,9 +228,12 @@ model Command {
   dongleId   String        @map("dongle_id") @db.Uuid
   userId     String        @map("user_id") @db.Uuid
   command    String        @db.VarChar(255)
+  commandTarget CommandTarget @default(agent) @map("command_target")
+  commandSource CommandSource @default(web) @map("command_source")
   status     CommandStatus @default(queued)
   stdout     String        @default("") @db.Text
   stderr     String        @default("") @db.Text
+  truncated  Boolean       @default(false)
   exitCode   Int?          @map("exit_code")
   createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
   startedAt  DateTime?     @map("started_at") @db.Timestamp(6)
@@ -239,6 +253,7 @@ model PairingSession {
   status     PairingStatus  @default(ACTIVE)
   expiresAt  DateTime       @map("expires_at") @db.Timestamp(6)
   attempts   Int            @default(0)
+  pairingNonce Bytes?       @map("pairing_nonce")
   holdUntil  DateTime?      @map("hold_until") @db.Timestamp(6)
   holdReason String?        @map("hold_reason") @db.VarChar(128)
   createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamp(6)

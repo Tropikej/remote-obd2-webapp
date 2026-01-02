@@ -21,6 +21,8 @@ NON-NEGOTIABLE REQUIREMENTS:
 * Every ExecPlan must enable a complete novice to implement the feature end-to-end without prior knowledge of this repo.
 * Every ExecPlan must produce a demonstrably working behavior, not merely code changes to "meet a definition".
 * Every ExecPlan must define every term of art in plain language or do not use it.
+* Every ExecPlan must add or extend the end-to-end (E2E) test suite with new test cases for the planned change, and those tests must be run and pass before the work is considered complete.
+* Test scripts must be defined in the repository root `package.json` under `scripts` as the canonical entry point. If the tests live in a workspace, add a workspace-level script in that workspace's `package.json` and call it from the root script (for example, root `e2e:test` invokes workspace `e2e:test`).
  
 Purpose and intent come first. Begin by explaining, in a few sentences, why the work matters from a user's perspective: what someone can do after this change that they could not do before, and how to see it working. Then guide the reader through the exact steps to achieve that outcome, including what to edit, what to run, and what they should observe.
  

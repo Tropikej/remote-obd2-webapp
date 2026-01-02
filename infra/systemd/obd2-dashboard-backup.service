@@ -1,0 +1,15 @@
+[Unit]
+Description=OBD2 Dashboard Postgres Backup (restic)
+Wants=network-online.target
+After=network-online.target docker.service
+ConditionPathExists=/etc/obd2-dashboard-backup.env
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/obd2-dashboard-backup.env
+ExecStart=/opt/obd2-dashboard/infra/scripts/backup-postgres.sh
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

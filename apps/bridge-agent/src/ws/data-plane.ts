@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { DataPlaneCanMessage, CanRelayFrame } from "@dashboard/shared";
 
 export type DataPlaneClient = {
-  sendFrame: (payload: { groupId: string; dongleId: string; frame: CanRelayFrame }) => void;
+  sendFrame: (payload: { groupId?: string; dongleId: string; frame: CanRelayFrame }) => void;
   onFrame: (handler: (payload: DataPlaneCanMessage) => void) => () => void;
   close: () => void;
   isOpen: () => boolean;
@@ -37,14 +37,14 @@ export const connectDataPlaneWs = (opts: {
     }
   });
 
-  const sendFrame = (payload: { groupId: string; dongleId: string; frame: CanRelayFrame }) => {
+  const sendFrame = (payload: { groupId?: string; dongleId: string; frame: CanRelayFrame }) => {
     if (socket.readyState !== WebSocket.OPEN) {
       return;
     }
     const message: DataPlaneCanMessage = {
       type: "can_frame",
-      group_id: payload.groupId,
       dongle_id: payload.dongleId,
+      ...(payload.groupId ? { group_id: payload.groupId } : {}),
       frame: payload.frame,
     };
     socket.send(JSON.stringify(message));

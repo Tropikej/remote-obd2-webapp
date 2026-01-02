@@ -115,6 +115,8 @@ export type CommandRequest = {
   command: string;
   args?: string[];
   timeout_ms?: number;
+  command_target?: "agent" | "dongle";
+  allow_dangerous?: boolean;
 };
 
 export type CommandStatus = {
@@ -122,11 +124,21 @@ export type CommandStatus = {
   status: "queued" | "running" | "ok" | "error" | "timeout" | "cancelled";
   dongle_id?: string;
   group_id?: string;
+  command_target?: "agent" | "dongle";
+  command_source?: "web" | "agent" | "system";
   started_at?: string | null;
   completed_at?: string | null;
   exit_code?: number | null;
   stdout?: string;
   stderr?: string;
+  truncated?: boolean;
+};
+
+export type CanFrameSendRequest = {
+  can_id: string;
+  is_extended?: boolean;
+  data_hex: string;
+  bus?: string;
 };
 
 export type AuditLogEntry = {
@@ -208,6 +220,12 @@ export const api = {
       `/api/v1/dongles/${id}/can-config`,
       { method: "PUT", body: JSON.stringify(payload) }
     );
+  },
+  sendCanFrame(id: string, payload: CanFrameSendRequest) {
+    return request<{ ok: boolean }>(`/api/v1/dongles/${id}/can/send`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
   sendCommand(id: string, payload: CommandRequest) {
     return request<{ command_id: string; status: string }>(`/api/v1/dongles/${id}/commands`, {

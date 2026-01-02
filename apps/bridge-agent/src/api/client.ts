@@ -228,6 +228,11 @@ export type ReportDevicesResponse = {
   devices: ReportedDeviceRecord[];
 };
 
+export type DongleTokenResponse = {
+  dongle_id: string;
+  token: string;
+};
+
 export const registerAgent = async (input: RegisterAgentInput): Promise<AgentRegistration> => {
   const apiBaseUrl = normalizeBaseUrl(input.apiBaseUrl);
   const session = createSessionClient(apiBaseUrl);
@@ -334,6 +339,35 @@ export const reportDevices = async (
   }
 
   return (body || { devices: [] }) as ReportDevicesResponse;
+};
+
+export const fetchDongleToken = async (input: {
+  apiBaseUrl: string;
+  agentToken: string;
+  dongleId: string;
+}): Promise<DongleTokenResponse> => {
+  const apiBaseUrl = normalizeBaseUrl(input.apiBaseUrl);
+  const res = await fetchWithFallback(
+    buildFallbackUrls(apiBaseUrl),
+    `/api/v1/agents/dongles/${input.dongleId}/token`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.agentToken}`,
+      },
+    }
+  );
+
+  const text = await res.text();
+  const body = parseJson(text);
+  if (res.status < 200 || res.status >= 300) {
+    throw new ApiError(body?.message || "Dongle token fetch failed.", res.status, body || undefined);
+  }
+  if (!body?.token) {
+    throw new Error("Dongle token missing from response.");
+  }
+
+  return body as DongleTokenResponse;
 };
 
 export const isAuthError = (error: unknown) => {

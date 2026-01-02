@@ -10,8 +10,10 @@ export type CanRelayFrame = {
 
 export type DataPlaneCanMessage = {
   type: "can_frame";
-  group_id: string;
   dongle_id: string;
+  group_id?: string;
+  target_dongle_id?: string;
+  direction?: "a_to_b" | "b_to_a";
   frame: CanRelayFrame;
 };
 

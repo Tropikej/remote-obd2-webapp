@@ -20,3 +20,6 @@ __exportStar(require("./api/errors"), exports);
 __exportStar(require("./api/dongles"), exports);
 __exportStar(require("./protocols/can-config"), exports);
 __exportStar(require("./protocols/discovery"), exports);
+__exportStar(require("./protocols/can-relay"), exports);
+__exportStar(require("./protocols/commands"), exports);
+__exportStar(require("./events/console"), exports);

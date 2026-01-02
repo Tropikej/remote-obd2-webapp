@@ -12,7 +12,7 @@ const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
 const now = () => new Date();
 
-const randomToken = () => randomBytes(32).toString("base64url");
+const randomToken = () => randomBytes(32).toString("base64");
 
 const ensureAgentOnline = (dongle: { lastSeenAt: Date | null; lastSeenAgentId: string | null }) => {
   const lastSeenAt = dongle.lastSeenAt;
@@ -83,6 +83,75 @@ export const startPairingSession = async (dongleId: string, userId: string) => {
 
   const existing = await latestActiveSession(dongleId, userId);
   if (existing) {
+    if (!existing.pairingNonce) {
+      const agentId = ensureAgentOnline({
+        lastSeenAt: dongle.lastSeenAt,
+        lastSeenAgentId: dongle.lastSeenAgentId,
+      });
+      let response: any;
+      try {
+        response = await sendControlRequest(agentId, {
+          type: "pairing_mode_start",
+          dongle_id: dongleId,
+          lan_ip: dongle.lanIp,
+          udp_port: dongle.udpPort,
+        });
+      } catch (error) {
+        throw new AppError(ErrorCodes.AGENT_OFFLINE, (error as Error).message, 503);
+      }
+      if (!response || response.type !== "pairing_mode_started") {
+        throw new AppError(ErrorCodes.INTERNAL_ERROR, "Invalid agent response.", 502);
+      }
+      const status = typeof response.status === "string" ? response.status : "ok";
+      if (status === "cooldown") {
+        const seconds =
+          typeof response.expires_in_s === "number" ? response.expires_in_s : undefined;
+        const holdUntil = seconds ? new Date(Date.now() + seconds * 1000) : undefined;
+        if (holdUntil) {
+          await enterSecurityHold(
+            dongle.id,
+            holdUntil,
+            "too_many_pin_attempts",
+            { userId },
+            existing.id
+          );
+        }
+        throw new AppError(ErrorCodes.PAIRING_SECURITY_HOLD, "Dongle is in security hold.", 423, {
+          hold_until: holdUntil ? holdUntil.toISOString() : undefined,
+        });
+      }
+      if (status !== "ok") {
+        throw new AppError(ErrorCodes.INTERNAL_ERROR, "Pairing failed.", 502);
+      }
+      const pairingNonce =
+        typeof response.pairing_nonce === "string"
+          ? Buffer.from(response.pairing_nonce, "base64")
+          : null;
+      if (status === "ok" && !pairingNonce) {
+        throw new AppError(ErrorCodes.INTERNAL_ERROR, "Pairing nonce missing from agent.", 502);
+      }
+      if (pairingNonce && pairingNonce.length !== 16) {
+        throw new AppError(ErrorCodes.INTERNAL_ERROR, "Invalid pairing nonce from agent.", 502);
+      }
+      const expiresAt =
+        typeof response.expires_in_s === "number"
+          ? new Date(Date.now() + response.expires_in_s * 1000)
+          : typeof response.expires_at === "string"
+            ? new Date(response.expires_at)
+            : null;
+      await prisma.pairingSession.update({
+        where: { id: existing.id },
+        data: {
+          pairingNonce: pairingNonce ?? undefined,
+          ...(expiresAt ? { expiresAt } : {}),
+        },
+      });
+      const effectiveExpiresAt = expiresAt ?? existing.expiresAt;
+      return {
+        pairing_session_id: existing.id,
+        expires_at: effectiveExpiresAt.toISOString(),
+      };
+    }
     return {
       pairing_session_id: existing.id,
       expires_at: existing.expiresAt.toISOString(),
@@ -123,16 +192,70 @@ export const startPairingSession = async (dongleId: string, userId: string) => {
     lastSeenAgentId: dongle.lastSeenAgentId,
   });
 
-  await sendControlRequest(agentId, {
-    type: "pairing_mode_start",
-    dongle_id: dongleId,
-    lan_ip: dongle.lanIp,
-    udp_port: dongle.udpPort,
-  });
+  let response: any;
+  try {
+    response = await sendControlRequest(agentId, {
+      type: "pairing_mode_start",
+      dongle_id: dongleId,
+      lan_ip: dongle.lanIp,
+      udp_port: dongle.udpPort,
+    });
+  } catch (error) {
+    throw new AppError(ErrorCodes.AGENT_OFFLINE, (error as Error).message, 503);
+  }
+  if (!response || response.type !== "pairing_mode_started") {
+    throw new AppError(ErrorCodes.INTERNAL_ERROR, "Invalid agent response.", 502);
+  }
+  const status = typeof response.status === "string" ? response.status : "ok";
+  if (status === "cooldown") {
+    const seconds =
+      typeof response.expires_in_s === "number" ? response.expires_in_s : undefined;
+    const holdUntil = seconds ? new Date(Date.now() + seconds * 1000) : undefined;
+    if (holdUntil) {
+      await enterSecurityHold(
+        dongle.id,
+        holdUntil,
+        "too_many_pin_attempts",
+        { userId },
+        session.id
+      );
+    }
+    throw new AppError(ErrorCodes.PAIRING_SECURITY_HOLD, "Dongle is in security hold.", 423, {
+      hold_until: holdUntil ? holdUntil.toISOString() : undefined,
+    });
+  }
+  if (status !== "ok") {
+    throw new AppError(ErrorCodes.INTERNAL_ERROR, "Pairing failed.", 502);
+  }
+  const pairingNonce =
+    typeof response.pairing_nonce === "string"
+      ? Buffer.from(response.pairing_nonce, "base64")
+      : null;
+  if (status === "ok" && !pairingNonce) {
+    throw new AppError(ErrorCodes.INTERNAL_ERROR, "Pairing nonce missing from agent.", 502);
+  }
+  if (pairingNonce && pairingNonce.length !== 16) {
+    throw new AppError(ErrorCodes.INTERNAL_ERROR, "Invalid pairing nonce from agent.", 502);
+  }
+  const expiresAtFromAgent =
+    typeof response.expires_in_s === "number"
+      ? new Date(Date.now() + response.expires_in_s * 1000)
+      : typeof response.expires_at === "string"
+        ? new Date(response.expires_at)
+        : null;
+  if (pairingNonce || expiresAtFromAgent) {
+    await prisma.pairingSession.update({
+      where: { id: session.id },
+      data: {
+        pairingNonce: pairingNonce ?? undefined,
+        ...(expiresAtFromAgent ? { expiresAt: expiresAtFromAgent } : {}),
+      },
+    });
+  }
 
   return {
     pairing_session_id: session.id,
-    expires_at: session.expiresAt.toISOString(),
+    expires_at: (expiresAtFromAgent ?? session.expiresAt).toISOString(),
   };
 };
 
@@ -208,6 +331,13 @@ export const submitPairing = async (userId: string, input: PairingSubmitInput): 
   }
 
   const dongleToken = input.dongleToken || randomToken();
+  const storedNonce = session.pairingNonce
+    ? session.pairingNonce.toString("base64")
+    : undefined;
+  const pairingNonce = input.pairingNonce ?? storedNonce;
+  if (!pairingNonce) {
+    throw new AppError(ErrorCodes.INTERNAL_ERROR, "Pairing nonce missing.", 500);
+  }
 
   let response: any;
   try {
@@ -215,7 +345,7 @@ export const submitPairing = async (userId: string, input: PairingSubmitInput): 
       type: "pairing_submit",
       dongle_id: dongle.id,
       pin: input.pin,
-      pairing_nonce: input.pairingNonce,
+      pairing_nonce: pairingNonce,
       dongle_token: dongleToken,
       lan_ip: dongle.lanIp,
       udp_port: dongle.udpPort,
@@ -227,6 +357,25 @@ export const submitPairing = async (userId: string, input: PairingSubmitInput): 
   const status = response?.status as string | undefined;
   const isInvalidPin = status === "invalid_pin";
   const isOk = status === "ok";
+  const isCooldown = status === "cooldown";
+
+  if (isCooldown) {
+    const seconds =
+      typeof response?.expires_in_s === "number" ? response.expires_in_s : undefined;
+    const holdUntil = seconds ? new Date(Date.now() + seconds * 1000) : undefined;
+    if (holdUntil) {
+      await enterSecurityHold(
+        dongle.id,
+        holdUntil,
+        "too_many_pin_attempts",
+        { userId, ip: input.actorIp, userAgent: input.actorUserAgent },
+        session.id
+      );
+    }
+    throw new AppError(ErrorCodes.PAIRING_SECURITY_HOLD, "Dongle is in security hold.", 423, {
+      hold_until: holdUntil ? holdUntil.toISOString() : undefined,
+    });
+  }
 
   if (!isOk && !isInvalidPin) {
     await prisma.pairingSession.update({

@@ -1,0 +1,59 @@
+services:
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4180:4180"
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+    volumes:
+      - ${OAUTH2_PROXY_ALLOWED_EMAILS_FILE}:/etc/oauth2-proxy/allowed-emails.txt:ro
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=github
+      - --redirect-url=${OAUTH2_PROXY_REDIRECT_URL}
+      - --scope=read:user,user:email,read:org
+      - --email-domain=*
+      - --authenticated-emails-file=/etc/oauth2-proxy/allowed-emails.txt
+      - --proxy-prefix=/oauth2
+      - --set-xauthrequest=true
+      - --reverse-proxy=true
+      - --cookie-secure=true
+      - --cookie-samesite=lax
+      - --upstream=static://200
+
+  pgadmin:
+    image: dpage/pgadmin4:8.12
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5050:5050"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_LISTEN_PORT: 5050
+      SCRIPT_NAME: /db
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: 1
+      PGADMIN_CONFIG_PROXY_X_PROTO_COUNT: 1
+      PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT: 1
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+  redisinsight:
+    image: redis/redisinsight:2.70.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5540:5540"
+    environment:
+      RI_APP_HOST: 0.0.0.0
+      RI_APP_PORT: 5540
+      RI_PROXY_PATH: /redis
+      RI_SOCKET_PROXY_PATH: /redis
+      RI_ACCEPT_TERMS_AND_CONDITIONS: "true"
+    volumes:
+      - redisinsight-data:/data
+
+volumes:
+  pgadmin-data:
+  redisinsight-data:

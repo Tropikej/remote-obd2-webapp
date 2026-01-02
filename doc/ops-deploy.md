@@ -68,6 +68,31 @@ cd /opt/obd2-dashboard
 npx prisma migrate deploy --schema=prisma/schema.prisma
 ```
 
+### Creating new migrations (dev)
+
+Create migrations in a dev environment and commit them:
+
+```
+cd /opt/obd2-dashboard
+npx prisma migrate dev --schema=prisma/schema.prisma --name <migration_name>
+```
+
+### Applying migrations (VPS)
+
+Before applying migrations on the VPS, take a backup, then run deploy:
+
+```
+pg_dump "$DATABASE_URL" > /var/backups/obd2-dashboard-$(date +%F-%H%M%S).sql
+cd /opt/obd2-dashboard
+npx prisma migrate deploy --schema=prisma/schema.prisma
+```
+
+If Redis schema metadata is used, re-run the bootstrap:
+
+```
+npm run redis:bootstrap --workspace apps/dashboard-api
+```
+
 ## Redis bootstrap
 
 Run the Redis bootstrap script after migrations to initialize schema metadata:
@@ -101,11 +126,24 @@ Key locations:
 - `/api` → API (proxy buffering off for `/api/v1/streams/**`)
 - `/ws/agent` and `/ws/data` → WebSocket upgrade paths
 
-## Backups and rollback (outline)
+## Admin UI (Postgres + Redis)
 
-- Before migrations, run `pg_dump "$DATABASE_URL" > /var/backups/obd2-dashboard-$(date +%F-%H%M%S).sql`.
-- Retain backups with rotation (e.g., cron + logrotate).
-- To roll back, restore the dump to the database and redeploy the previous app build.
+To enable the OAuth-protected pgAdmin and RedisInsight UIs under `/db` and
+`/redis`, follow `doc/admin-ui.md`.
+
+## Backups and rollback
+
+Daily backups use restic + Backblaze B2. Follow `doc/ops-backups.md` to set up
+the timers and restic repository.
+
+Before migrations on the VPS, trigger a fresh backup:
+
+```
+sudo systemctl start obd2-dashboard-backup.service
+```
+
+To roll back, restore from the latest snapshot as documented in
+`doc/ops-backups.md`, then redeploy the previous app build.
 
 ## CI/CD (GitHub Actions)
 

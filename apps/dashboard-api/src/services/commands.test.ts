@@ -75,9 +75,12 @@ describe("commands service", () => {
       dongleId: "dongle-1",
       userId: "user-1",
       command: "ifconfig",
+      commandTarget: "agent",
+      commandSource: "web",
       status: "queued",
       stdout: "",
       stderr: "",
+      truncated: false,
       startedAt: null,
       finishedAt: null,
       exitCode: null,
@@ -133,9 +136,12 @@ describe("commands service", () => {
       dongleId: "dongle-1",
       userId: "user-1",
       command: "ifconfig",
+      commandTarget: "agent",
+      commandSource: "web",
       status: "queued",
       stdout: "",
       stderr: "",
+      truncated: false,
       startedAt: null,
       finishedAt: null,
       exitCode: null,
@@ -150,6 +156,9 @@ describe("commands service", () => {
       exitCode: null,
       stdout: "",
       stderr: "",
+      commandTarget: "agent",
+      commandSource: "web",
+      truncated: false,
     });
     sendControlRequestMock.mockResolvedValue({ type: "command_ack" });
 
@@ -177,6 +186,9 @@ describe("commands service", () => {
       exitCode: null,
       startedAt: null,
       finishedAt: null,
+      commandTarget: "agent",
+      commandSource: "web",
+      truncated: false,
     });
     prismaCommandMock.update.mockResolvedValue({
       id: "cmd-2",
@@ -187,6 +199,9 @@ describe("commands service", () => {
       exitCode: 0,
       startedAt: new Date("2024-01-01T00:00:00Z"),
       finishedAt: new Date("2024-01-01T00:00:01Z"),
+      commandTarget: "agent",
+      commandSource: "web",
+      truncated: false,
     });
 
     const handled = await handleAgentCommandUpdate({

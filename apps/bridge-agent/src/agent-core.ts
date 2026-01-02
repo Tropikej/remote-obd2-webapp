@@ -1,11 +1,25 @@
 import { EventEmitter } from "events";
+import { spawn } from "child_process";
 import os from "os";
 import type { CanConfigApplyRequest } from "@dashboard/shared/protocols/can-config";
+import type {
+  CanRelayFrame,
+  CommandChunkMessage,
+  CommandRequestMessage,
+  CommandResponseMessage,
+} from "@dashboard/shared";
+import {
+  deviceIdToBytes,
+  encodeCanFrame,
+  encodeRempHeader,
+  REMP_TYPE_CAN,
+} from "@dashboard/remp";
 import {
   AgentRegistration,
   DeviceReport,
   NetworkInterfaceSummary,
   ReportedDeviceRecord,
+  fetchDongleToken,
   isAuthError,
   registerAgent,
   reportDevices,
@@ -14,7 +28,10 @@ import {
 import { AgentConfig, loadConfig, saveConfig } from "./config/store";
 import { DiscoveryEvent, DiscoveryScanner, startDiscovery } from "./discovery";
 import { applyCanConfigToDongle } from "./remp/can-config";
+import { sendDongleCliCommand } from "./remp/cli";
 import { startPairingMode, submitPairing } from "./remp/pairing";
+import { decodeDongleToken } from "./remp/token";
+import { createRempTransport, type RempCanEvent, type RempTarget } from "./remp/transport";
 import { ControlConnection, ControlConnectionStatus, connectControlWs } from "./ws/control";
 import { connectDataPlaneWs, type DataPlaneClient } from "./ws/data-plane";
 
@@ -79,6 +96,7 @@ type DeviceSnapshot = {
   lastSeenAt: number;
   ownershipState?: string | null;
   ownerUserId?: string | null;
+  cloudId?: string | null;
 };
 
 type CanConfigApplyMessage = {
@@ -105,6 +123,23 @@ type PairingSubmitMessage = {
   dongle_token: string;
   lan_ip?: string;
   udp_port?: number;
+};
+
+type CanFrameSendMessage = {
+  type: "can_frame_send";
+  request_id: string;
+  dongle_id: string;
+  frame: {
+    can_id: string;
+    is_extended: boolean;
+    data_hex: string;
+    dlc?: number;
+    bus?: string;
+  };
+};
+
+type CommandRequestControlMessage = CommandRequestMessage & {
+  request_id: string;
 };
 
 const buildNetworkInterfacesSummary = (): NetworkInterfaceSummary[] => {
@@ -161,6 +196,28 @@ const isPairingSubmitMessage = (message: Record<string, unknown>): message is Pa
   typeof message.pin === "string" &&
   typeof message.dongle_token === "string";
 
+const isCanFrameSendMessage = (message: Record<string, unknown>): message is CanFrameSendMessage =>
+  message.type === "can_frame_send" &&
+  typeof message.request_id === "string" &&
+  typeof message.dongle_id === "string" &&
+  typeof (message as CanFrameSendMessage).frame === "object" &&
+  (message as CanFrameSendMessage).frame !== null &&
+  typeof (message as CanFrameSendMessage).frame.can_id === "string" &&
+  typeof (message as CanFrameSendMessage).frame.is_extended === "boolean" &&
+  typeof (message as CanFrameSendMessage).frame.data_hex === "string";
+
+const isCommandRequestMessage = (
+  message: Record<string, unknown>
+): message is CommandRequestControlMessage =>
+  message.type === "command_request" &&
+  typeof message.request_id === "string" &&
+  typeof message.command_id === "string" &&
+  typeof message.dongle_id === "string" &&
+  typeof message.command === "string" &&
+  Array.isArray(message.args) &&
+  (message.args as unknown[]).every((arg) => typeof arg === "string") &&
+  typeof message.timeout_ms === "number";
+
 const parseNumber = (value: number | undefined, fallback: number) => {
   if (!value || !Number.isFinite(value) || value <= 0) {
     return fallback;
@@ -169,6 +226,32 @@ const parseNumber = (value: number | undefined, fallback: number) => {
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
+
+const parseCanId = (value: string) => {
+  const trimmed = value.trim().toLowerCase();
+  const normalized = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
+  if (!/^[0-9a-f]+$/.test(normalized)) {
+    throw new Error("Invalid CAN id format.");
+  }
+  const parsed = Number.parseInt(normalized, 16);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("Invalid CAN id.");
+  }
+  return parsed;
+};
+
+const formatCanId = (value: number) => `0x${value.toString(16)}`;
+
+const parseDataHex = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return Buffer.alloc(0);
+  }
+  if (!/^[0-9a-f]+$/.test(normalized) || normalized.length % 2 !== 0) {
+    throw new Error("Invalid CAN payload.");
+  }
+  return Buffer.from(normalized, "hex");
+};
 
 const buildDeviceReport = (event: DiscoveryEvent): DeviceReport | null => {
   const deviceId = event.payload.deviceId?.toLowerCase();
@@ -242,6 +325,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
 
   let control: ControlConnection | null = null;
   let dataPlane: DataPlaneClient | null = null;
+  let dataPlaneUnsubscribe: (() => void) | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let reportTimer: NodeJS.Timeout | null = null;
   let discovery: DiscoveryScanner | null = null;
@@ -249,17 +333,30 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
   let registrationInFlight = false;
   let running = false;
 
+  const rempTransport = createRempTransport();
+
   const devices = new Map<string, DeviceSnapshot>();
   const deviceInterfaces = new Map<string, Set<string>>();
+  const cloudIdToDeviceId = new Map<string, string>();
+  const tokenCache = new Map<string, { token: string; expiresAt: number }>();
   let dirty = false;
   let reporting = false;
+
+  const resolveDeviceId = (dongleId: string) => {
+    return cloudIdToDeviceId.get(dongleId) ?? dongleId;
+  };
+
+  const getSnapshotForDongle = (dongleId: string) => {
+    const deviceId = resolveDeviceId(dongleId);
+    return devices.get(deviceId) ?? null;
+  };
 
   const findTargetForDongle = (
     dongleId: string,
     hintedIp?: string,
     hintedPort?: number
-  ): { host: string; port: number } | null => {
-    const snapshot = devices.get(dongleId);
+  ): RempTarget | null => {
+    const snapshot = getSnapshotForDongle(dongleId);
     const host = hintedIp || snapshot?.report.lan_ip;
     const port = hintedPort || snapshot?.report.udp_port;
     if (!host || !port) {
@@ -286,10 +383,30 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     email: process.env.AGENT_USER_EMAIL || "",
     password: process.env.AGENT_USER_PASSWORD || "",
   };
+  const tokenTtlMs = 5 * 60 * 1000;
 
   const setStatus = (patch: Partial<AgentStatus>) => {
     status = { ...status, ...patch };
     emitter.emit("status", status);
+  };
+
+  const getDongleToken = async (dongleId: string) => {
+    const cached = tokenCache.get(dongleId);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+      return cached.token;
+    }
+    if (!state.agentToken) {
+      throw new Error("Missing agent token.");
+    }
+    const response = await fetchDongleToken({
+      apiBaseUrl,
+      agentToken: state.agentToken,
+      dongleId,
+    });
+    const token = response.token;
+    tokenCache.set(dongleId, { token, expiresAt: now + tokenTtlMs });
+    return token;
   };
 
   const buildDiscoveryStatus = (): DiscoveryDeviceStatus[] =>
@@ -329,6 +446,10 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
   };
 
   const stopDataPlane = () => {
+    if (dataPlaneUnsubscribe) {
+      dataPlaneUnsubscribe();
+      dataPlaneUnsubscribe = null;
+    }
     if (dataPlane) {
       dataPlane.close();
       dataPlane = null;
@@ -359,8 +480,20 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       }
       if (isCanConfigApplyMessage(message)) {
         try {
+          const target = findTargetForDongle(message.dongle_id);
+          if (!target) {
+            throw new Error("Missing LAN IP or UDP port for dongle.");
+          }
+          const snapshot = getSnapshotForDongle(message.dongle_id);
+          if (!snapshot) {
+            throw new Error("Dongle not found in discovery cache.");
+          }
+          const token = await getDongleToken(message.dongle_id);
           const { effective } = await applyCanConfigToDongle(
-            message.dongle_id,
+            rempTransport,
+            target,
+            snapshot.report.device_id,
+            token,
             message.config
           );
           control?.send({
@@ -389,12 +522,23 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
           if (!target) {
             throw new Error("Missing LAN IP or UDP port for dongle.");
           }
-          const result = await startPairingMode(target, message.dongle_id);
+          const snapshot = getSnapshotForDongle(message.dongle_id);
+          if (!snapshot) {
+            throw new Error("Dongle not found in discovery cache.");
+          }
+          const result = await startPairingMode(
+            rempTransport,
+            target,
+            snapshot.report.device_id
+          );
           control?.send({
             type: "pairing_mode_started",
             request_id: message.request_id,
             dongle_id: message.dongle_id,
+            status: result.status,
             expires_at: result.expires_at,
+            expires_in_s: result.expires_in_s,
+            pairing_nonce: result.pairing_nonce,
           });
         } catch (error) {
           control?.send({
@@ -415,9 +559,14 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
           if (!target) {
             throw new Error("Missing LAN IP or UDP port for dongle.");
           }
+          const snapshot = getSnapshotForDongle(message.dongle_id);
+          if (!snapshot) {
+            throw new Error("Dongle not found in discovery cache.");
+          }
           const result = await submitPairing(
+            rempTransport,
             target,
-            message.dongle_id,
+            snapshot.report.device_id,
             message.pin,
             typeof message.pairing_nonce === "string" ? message.pairing_nonce : undefined,
             message.dongle_token
@@ -427,6 +576,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
             request_id: message.request_id,
             dongle_id: message.dongle_id,
             status: result.status,
+            expires_in_s: "expires_in_s" in result ? result.expires_in_s : undefined,
           });
         } catch (error) {
           control?.send({
@@ -435,7 +585,310 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
             message: (error as Error).message,
           });
         }
+        return;
       }
+      if (isCanFrameSendMessage(message)) {
+        try {
+          await sendCanFrameToDongle(message.dongle_id, message.frame);
+          control?.send({
+            type: "can_frame_ack",
+            request_id: message.request_id,
+            dongle_id: message.dongle_id,
+          });
+        } catch (error) {
+          control?.send({
+            type: "can_frame_error",
+            request_id: message.request_id,
+            message: (error as Error).message,
+          });
+        }
+        return;
+      }
+      if (isCommandRequestMessage(message)) {
+        control?.send({
+          type: "command_ack",
+          request_id: message.request_id,
+          command_id: message.command_id,
+          dongle_id: message.dongle_id,
+        });
+        const target = message.command_target === "dongle" ? "dongle" : "agent";
+        if (target === "dongle") {
+          void executeDongleCommand(message);
+        } else {
+          void executeAgentCommand(message);
+        }
+        return;
+      }
+    });
+  };
+
+  const sendCanFrameToDongle = async (
+    dongleId: string,
+    frame: { can_id: string; is_extended?: boolean; data_hex: string }
+  ) => {
+    const snapshot = getSnapshotForDongle(dongleId);
+    if (!snapshot) {
+      throw new Error("Dongle not found in discovery cache.");
+    }
+    const target = findTargetForDongle(dongleId);
+    if (!target) {
+      throw new Error("Missing LAN IP or UDP port for dongle.");
+    }
+    const canId = parseCanId(frame.can_id);
+    const data = parseDataHex(frame.data_hex);
+    const isExtended =
+      typeof frame.is_extended === "boolean" ? frame.is_extended : canId > 0x7ff;
+    const token = await getDongleToken(dongleId);
+    const payload = encodeCanFrame({
+      canId,
+      isExtended,
+      data,
+    });
+    const header = encodeRempHeader({
+      type: REMP_TYPE_CAN,
+      deviceId: deviceIdToBytes(snapshot.report.device_id),
+      token: decodeDongleToken(token),
+    });
+    await rempTransport.send(target, Buffer.concat([header, payload]));
+  };
+
+  const handleDataPlaneFrame = async (message: { type: string } & Record<string, unknown>) => {
+    if (message.type !== "can_frame") {
+      return;
+    }
+    const payload = message as Record<string, unknown>;
+    const dongleId = typeof payload.dongle_id === "string" ? payload.dongle_id : undefined;
+    const targetDongleId =
+      typeof payload.target_dongle_id === "string" ? payload.target_dongle_id : dongleId;
+    const frame =
+      typeof payload.frame === "object" && payload.frame !== null
+        ? (payload.frame as Record<string, unknown>)
+        : null;
+    const canId = frame && typeof frame.can_id === "string" ? frame.can_id : null;
+    const dataHex = frame && typeof frame.data_hex === "string" ? frame.data_hex : null;
+    const isExtended =
+      frame && typeof frame.is_extended === "boolean" ? frame.is_extended : undefined;
+    if (!targetDongleId || !canId || !dataHex) {
+      return;
+    }
+    try {
+      await sendCanFrameToDongle(targetDongleId, {
+        can_id: canId,
+        is_extended: isExtended,
+        data_hex: dataHex,
+      });
+    } catch (error) {
+      console.warn(`[bridge-agent] data-plane CAN relay failed: ${(error as Error).message}`);
+    }
+  };
+
+  const handleRempCanFrame = (event: RempCanEvent) => {
+    const snapshot = devices.get(event.deviceId);
+    const dongleId = snapshot?.cloudId;
+    if (!dongleId || !dataPlane || !dataPlane.isOpen()) {
+      return;
+    }
+    const frame: CanRelayFrame = {
+      ts: new Date().toISOString(),
+      can_id: formatCanId(event.frame.canId),
+      is_extended: event.frame.isExtended,
+      dlc: event.frame.dlc,
+      data_hex: event.frame.dataHex,
+      direction: "rx",
+    };
+    dataPlane.sendFrame({
+      dongleId,
+      frame,
+    });
+  };
+
+  const rempUnsubscribe = rempTransport.onCanFrame(handleRempCanFrame);
+
+  const sendCommandChunk = (payload: CommandChunkMessage) => {
+    control?.send(payload);
+  };
+
+  const sendCommandResponse = (payload: CommandResponseMessage) => {
+    control?.send(payload);
+  };
+
+  const executeDongleCommand = async (message: CommandRequestControlMessage) => {
+    const commandSource = message.command_source ?? "web";
+    const commandTarget = "dongle";
+    const startedAt = new Date().toISOString();
+    const snapshot = getSnapshotForDongle(message.dongle_id);
+    if (!snapshot) {
+      sendCommandResponse({
+        type: "command_response",
+        command_id: message.command_id,
+        status: "error",
+        stderr: "Dongle not found in discovery cache.",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
+      return;
+    }
+    const target = findTargetForDongle(message.dongle_id);
+    if (!target) {
+      sendCommandResponse({
+        type: "command_response",
+        command_id: message.command_id,
+        status: "error",
+        stderr: "Missing LAN IP or UDP port for dongle.",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
+      return;
+    }
+
+    const fullCommand = [message.command, ...(message.args || [])].join(" ").trim();
+    try {
+      const token = await getDongleToken(message.dongle_id);
+      const response = await sendDongleCliCommand({
+        transport: rempTransport,
+        target,
+        deviceId: snapshot.report.device_id,
+        token,
+        command: fullCommand,
+        allowDangerous: message.allow_dangerous,
+        timeoutMs: message.timeout_ms,
+      });
+      if (response.output) {
+        const stream = response.status === "ok" ? "stdout" : "stderr";
+        sendCommandChunk({
+          type: "command_chunk",
+          command_id: message.command_id,
+          seq: 1,
+          is_last: true,
+          stream,
+          data: Buffer.from(response.output, "utf8").toString("base64"),
+          dongle_id: message.dongle_id,
+          command_source: commandSource,
+          command_target: commandTarget,
+          truncated: response.truncated,
+        });
+      }
+      const status =
+        response.status === "ok"
+          ? "ok"
+          : response.status === "timeout"
+            ? "timeout"
+            : "error";
+      sendCommandResponse({
+        type: "command_response",
+        command_id: message.command_id,
+        status,
+        exit_code: response.exitCode,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+        truncated: response.truncated,
+      });
+    } catch (error) {
+      sendCommandResponse({
+        type: "command_response",
+        command_id: message.command_id,
+        status: "error",
+        stderr: (error as Error).message ?? "Dongle CLI failed.",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
+    }
+  };
+
+  const executeAgentCommand = async (message: CommandRequestControlMessage) => {
+    const commandSource = message.command_source ?? "web";
+    const commandTarget = "agent";
+    const startedAt = new Date().toISOString();
+    let seq = 0;
+    let finished = false;
+
+    const respond = (payload: CommandResponseMessage) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      sendCommandResponse(payload);
+    };
+
+    const proc = spawn(message.command, message.args, {
+      windowsHide: true,
+    });
+
+    const timeout = setTimeout(() => {
+      proc.kill("SIGKILL");
+      respond({
+        type: "command_response",
+        command_id: message.command_id,
+        status: "timeout",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
+    }, message.timeout_ms);
+
+    const onData = (stream: "stdout" | "stderr") => (data: Buffer) => {
+      if (finished) {
+        return;
+      }
+      sendCommandChunk({
+        type: "command_chunk",
+        command_id: message.command_id,
+        seq: seq++,
+        is_last: false,
+        stream,
+        data: Buffer.from(data).toString("base64"),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
+    };
+
+    proc.stdout?.on("data", onData("stdout"));
+    proc.stderr?.on("data", onData("stderr"));
+
+    proc.on("error", (error) => {
+      clearTimeout(timeout);
+      respond({
+        type: "command_response",
+        command_id: message.command_id,
+        status: "error",
+        stderr: (error as Error).message ?? "Command failed to start.",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
+    });
+
+    proc.on("close", (code) => {
+      clearTimeout(timeout);
+      const status = code === 0 ? "ok" : "error";
+      respond({
+        type: "command_response",
+        command_id: message.command_id,
+        status,
+        exit_code: code ?? null,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        dongle_id: message.dongle_id,
+        command_source: commandSource,
+        command_target: commandTarget,
+      });
     });
   };
 
@@ -448,6 +901,9 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       apiBaseUrl,
       agentId: state.agentId,
       agentToken: state.agentToken,
+    });
+    dataPlaneUnsubscribe = dataPlane.onFrame((payload) => {
+      void handleDataPlaneFrame(payload as any);
     });
   };
 
@@ -499,6 +955,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
         lastSeenAt: Date.now(),
         ownershipState: existing?.ownershipState ?? null,
         ownerUserId: existing?.ownerUserId ?? null,
+        cloudId: existing?.cloudId ?? null,
       });
       updateDiscoveryStatus();
     });
@@ -544,6 +1001,10 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
           }
           snapshot.ownershipState = record.ownership_state ?? snapshot.ownershipState ?? null;
           snapshot.ownerUserId = record.owner_user_id ?? snapshot.ownerUserId ?? null;
+          snapshot.cloudId = record.id ?? snapshot.cloudId ?? null;
+          if (record.id) {
+            cloudIdToDeviceId.set(record.id, deviceId);
+          }
         }
         updateDiscoveryStatus();
       }
@@ -631,6 +1092,8 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     state = {};
     devices.clear();
     deviceInterfaces.clear();
+    cloudIdToDeviceId.clear();
+    tokenCache.clear();
     setStatus({
       agentId: null,
       wsStatus: "closed",
@@ -723,6 +1186,8 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     stopTimers();
     stopControl();
     stopDataPlane();
+    rempUnsubscribe();
+    rempTransport.close();
     await stopDiscovery();
   };
 

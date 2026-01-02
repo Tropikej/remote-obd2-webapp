@@ -25,6 +25,9 @@ const electronBin = resolveBin("electron");
 
 const sharedTsconfig = path.join(repoRoot, "packages", "shared", "tsconfig.json");
 const sharedDiscovery = path.join(repoRoot, "packages", "shared", "dist", "protocols", "discovery.js");
+const rempTsconfig = path.join(repoRoot, "packages", "remp", "tsconfig.json");
+const rempIndex = path.join(repoRoot, "packages", "remp", "dist", "index.js");
+const rempPairing = path.join(repoRoot, "packages", "remp", "dist", "pairing.js");
 const mainOutput = path.join(appRoot, "dist", "desktop", "main.js");
 
 const children = new Set();
@@ -55,7 +58,12 @@ const waitForReady = () => {
   if (electronStarted || !devServerUrl) {
     return;
   }
-  if (!fs.existsSync(sharedDiscovery) || !fs.existsSync(mainOutput)) {
+  if (
+    !fs.existsSync(sharedDiscovery) ||
+    !fs.existsSync(rempIndex) ||
+    !fs.existsSync(rempPairing) ||
+    !fs.existsSync(mainOutput)
+  ) {
     return;
   }
   electronStarted = true;
@@ -107,6 +115,7 @@ process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
 spawnProcess(tscBin, ["-p", sharedTsconfig, "--watch"]);
+spawnProcess(tscBin, ["-p", rempTsconfig, "--watch"]);
 spawnProcess(tscBin, ["-p", "tsconfig.desktop.json", "--watch"]);
 launchVite();
 watchReady();

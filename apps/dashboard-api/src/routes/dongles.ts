@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { AppError } from "../errors/app-error";
 import { ErrorCodes } from "@dashboard/shared";
 import { enqueueCommand, getCommandForUser } from "../services/commands";
+import { sendCanFrame } from "../services/can-send";
 
 const router = Router();
 
@@ -75,6 +76,16 @@ router.put(
   asyncHandler(async (req, res) => {
     const isAdmin = req.user?.role === "super_admin";
     const result = await applyCanConfig(req.params.id, req.user!.id, isAdmin, req.body);
+    res.json(result);
+  })
+);
+
+router.post(
+  "/:id/can/send",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const isAdmin = req.user?.role === "super_admin";
+    const result = await sendCanFrame(req.params.id, req.user!.id, isAdmin, req.body);
     res.json(result);
   })
 );

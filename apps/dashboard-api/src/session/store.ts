@@ -15,6 +15,11 @@ export const createSessionMiddleware = () => {
   if (!process.env.SESSION_SECRET && !isProduction) {
     console.warn("[session] SESSION_SECRET not set, using development fallback.");
   }
+  const secureOverride = process.env.SESSION_COOKIE_SECURE;
+  const cookieSecure =
+    secureOverride !== undefined
+      ? secureOverride === "true" || secureOverride === "1"
+      : isProduction;
 
   const pool = new Pool({ connectionString });
 
@@ -26,7 +31,7 @@ export const createSessionMiddleware = () => {
     rolling: true,
     cookie: {
       httpOnly: true,
-      secure: isProduction,
+      secure: cookieSecure,
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },

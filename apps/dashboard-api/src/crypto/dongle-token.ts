@@ -14,6 +14,13 @@ export type DongleTokenEnvelope = {
   tag: Buffer;
 };
 
+const normalizeBase64 = (value: string) => {
+  const trimmed = value.trim();
+  const normalized = trimmed.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4;
+  return padding ? normalized + "=".repeat(4 - padding) : normalized;
+};
+
 const aadToBuffer = (aad: DongleTokenAad) => {
   return Buffer.from(`${aad.dongleId}|${aad.userId}|${aad.createdAt}`, "utf8");
 };
@@ -27,7 +34,7 @@ export const encryptDongleToken = (token: string, aad: DongleTokenAad, version?:
 
   cipher.setAAD(aadToBuffer(aad));
 
-  const tokenBytes = Buffer.from(token, "base64");
+  const tokenBytes = Buffer.from(normalizeBase64(token), "base64");
   const ciphertext = Buffer.concat([cipher.update(tokenBytes), cipher.final()]);
   const tag = cipher.getAuthTag();
 
