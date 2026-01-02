@@ -4,6 +4,8 @@ import {
   ErrorCodes,
   type CommandChunkMessage,
   type CommandResponseMessage,
+  type CommandSource,
+  type CommandTarget,
 } from "@dashboard/shared";
 import { prisma } from "../db";
 import { AppError } from "../errors/app-error";
@@ -16,6 +18,9 @@ type EnqueueInput = {
   command: unknown;
   args?: unknown;
   timeout_ms?: unknown;
+  command_target?: unknown;
+  command_source?: unknown;
+  allow_dangerous?: unknown;
 };
 
 type CommandMeta = {
@@ -25,16 +30,28 @@ type CommandMeta = {
 
 type AllowlistEntry = {
   command: string;
+  args?: string[];
   maxArgs?: number;
   defaultTimeoutMs?: number;
   maxTimeoutMs?: number;
 };
 
-export const COMMAND_ALLOWLIST: AllowlistEntry[] = [
+export const AGENT_COMMAND_ALLOWLIST: AllowlistEntry[] = [
   { command: "ifconfig", maxArgs: 4, defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
   { command: "ip", maxArgs: 6, defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
   { command: "ping", maxArgs: 6, defaultTimeoutMs: 10000, maxTimeoutMs: 20000 },
 ];
+
+export const DONGLE_COMMAND_ALLOWLIST: AllowlistEntry[] = [
+  { command: "help", args: [], defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
+  { command: "remote", args: ["status"], defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
+  { command: "remote", args: ["stats"], defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
+  { command: "can", args: ["cfg", "show"], defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
+  { command: "discovery", args: ["status"], defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
+  { command: "time", args: ["status"], defaultTimeoutMs: 5000, maxTimeoutMs: 15000 },
+];
+
+const COMMAND_OUTPUT_MAX_BYTES = 64 * 1024;
 
 const commandTimers = new Map<string, NodeJS.Timeout>();
 
@@ -58,7 +75,7 @@ const mapAgentStatusToDb = (status: unknown): CommandStatusDb => {
   return "error";
 };
 
-const normalizeArgs = (args: unknown, entry: AllowlistEntry) => {
+const normalizeArgs = (args: unknown) => {
   if (args === undefined) return [] as string[];
   if (!Array.isArray(args)) {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, "args must be an array of strings.", 400);
@@ -69,9 +86,6 @@ const normalizeArgs = (args: unknown, entry: AllowlistEntry) => {
     }
     return arg;
   });
-  if (typeof entry.maxArgs === "number" && cleaned.length > entry.maxArgs) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, "Too many arguments for this command.", 400);
-  }
   return cleaned;
 };
 
@@ -83,11 +97,40 @@ const clampTimeout = (requested: unknown, entry: AllowlistEntry) => {
   return Math.min(Math.max(numeric, min), max);
 };
 
-const getAllowlistedCommand = (name: string) => {
+const sameArgs = (left: string[] | undefined, right: string[]) => {
+  if (!left) return true;
+  if (left.length !== right.length) return false;
+  return left.every((value, idx) => value === right[idx]);
+};
+
+const isDevMode = () => process.env.NODE_ENV !== "production";
+
+const getAllowlistedCommand = (
+  target: CommandTarget,
+  name: string,
+  args: string[],
+  allowDangerous: boolean
+) => {
   const normalized = name.trim().toLowerCase();
-  const entry = COMMAND_ALLOWLIST.find((item) => item.command === normalized);
+  if (target === "dongle") {
+    if (allowDangerous && isDevMode()) {
+      return { command: normalized, defaultTimeoutMs: 5000, maxTimeoutMs: 30000 };
+    }
+    const entry = DONGLE_COMMAND_ALLOWLIST.find(
+      (item) => item.command === normalized && sameArgs(item.args, args)
+    );
+    if (!entry) {
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, "Command is not allowed.", 400);
+    }
+    return entry;
+  }
+
+  const entry = AGENT_COMMAND_ALLOWLIST.find((item) => item.command === normalized);
   if (!entry) {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, "Command is not allowed.", 400);
+  }
+  if (typeof entry.maxArgs === "number" && args.length > entry.maxArgs) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, "Too many arguments for this command.", 400);
   }
   return entry;
 };
@@ -101,6 +144,9 @@ const buildEventFromRecord = (record: {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  commandTarget: CommandTarget;
+  commandSource: CommandSource;
+  truncated: boolean;
 }): CommandStatusEvent => ({
   type: "command_status",
   command_id: record.id,
@@ -111,6 +157,9 @@ const buildEventFromRecord = (record: {
   stdout: record.stdout || undefined,
   stderr: record.stderr || undefined,
   dongle_id: record.dongleId,
+  command_target: record.commandTarget,
+  command_source: record.commandSource,
+  truncated: record.truncated,
 });
 
 const publishSse = (record: {
@@ -122,6 +171,9 @@ const publishSse = (record: {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  commandTarget: CommandTarget;
+  commandSource: CommandSource;
+  truncated: boolean;
 }) => {
   const event = buildEventFromRecord(record);
   streamManager.publish(`dongle:${record.dongleId}`, "command_status", event);
@@ -156,6 +208,9 @@ const scheduleTimeout = (commandId: string, dongleId: string, timeoutMs: number)
             exitCode: record.exitCode ?? null,
             stdout: record.stdout,
             stderr: record.stderr,
+            commandTarget: record.commandTarget as CommandTarget,
+            commandSource: record.commandSource as CommandSource,
+            truncated: record.truncated,
           });
         }
       }
@@ -178,8 +233,22 @@ export const enqueueCommand = async (
   if (!payload || typeof payload.command !== "string" || !payload.command.trim()) {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, "Command is required.", 400);
   }
-  const allowlist = getAllowlistedCommand(payload.command);
-  const args = normalizeArgs(payload.args, allowlist);
+  const commandTarget: CommandTarget =
+    payload.command_target === "dongle" ? "dongle" : "agent";
+  const commandSource: CommandSource = "web";
+  const allowDangerous = payload.allow_dangerous === true;
+  if (allowDangerous && (!isDevMode() || commandTarget !== "dongle")) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, "Dangerous commands are disabled.", 400);
+  }
+
+  const rawArgs = normalizeArgs(payload.args);
+  const args = commandTarget === "dongle" ? rawArgs.map((arg) => arg.toLowerCase()) : rawArgs;
+  const allowlist = getAllowlistedCommand(
+    commandTarget,
+    payload.command,
+    args,
+    allowDangerous
+  );
   const timeoutMs = clampTimeout(payload.timeout_ms, allowlist);
 
   const dongle = await prisma.dongle.findUnique({ where: { id: dongleId } });
@@ -203,6 +272,8 @@ export const enqueueCommand = async (
       dongleId,
       userId,
       command: allowlist.command,
+      commandTarget,
+      commandSource,
       status: "queued",
     },
   });
@@ -216,6 +287,9 @@ export const enqueueCommand = async (
     exitCode: command.exitCode ?? null,
     stdout: command.stdout,
     stderr: command.stderr,
+    commandTarget: command.commandTarget as CommandTarget,
+    commandSource: command.commandSource as CommandSource,
+    truncated: command.truncated,
   });
 
   await prisma.auditLog.create({
@@ -231,6 +305,9 @@ export const enqueueCommand = async (
         command: allowlist.command,
         args,
         timeout_ms: timeoutMs,
+        command_target: commandTarget,
+        command_source: commandSource,
+        allow_dangerous: allowDangerous,
       },
     },
   });
@@ -245,6 +322,9 @@ export const enqueueCommand = async (
       command: allowlist.command,
       args,
       timeout_ms: timeoutMs,
+      command_target: commandTarget,
+      command_source: commandSource,
+      allow_dangerous: allowDangerous,
     });
   } catch (error) {
     clearTimer(command.id);
@@ -261,6 +341,9 @@ export const enqueueCommand = async (
       exitCode: null,
       stdout: "",
       stderr: (error as Error).message ?? "Dispatch failed",
+      commandTarget: command.commandTarget as CommandTarget,
+      commandSource: command.commandSource as CommandSource,
+      truncated: command.truncated,
     });
     throw new AppError(ErrorCodes.AGENT_OFFLINE, "Agent failed to accept command.", 503);
   }
@@ -294,7 +377,27 @@ export const getCommandForUser = async (
     exit_code: command.exitCode ?? null,
     stdout: command.stdout,
     stderr: command.stderr,
+    command_target: command.commandTarget as CommandTarget,
+    command_source: command.commandSource as CommandSource,
+    truncated: command.truncated,
   };
+};
+
+const clampOutputChunk = (base: string | undefined, chunk: string | undefined, remaining: number) => {
+  const safeBase = base ?? "";
+  const safeChunk = chunk ?? "";
+  if (!safeChunk) {
+    return { value: safeBase, used: 0, truncated: false };
+  }
+  if (remaining <= 0) {
+    return { value: safeBase, used: 0, truncated: true };
+  }
+  const buffer = Buffer.from(safeChunk, "utf8");
+  if (buffer.length <= remaining) {
+    return { value: safeBase + safeChunk, used: buffer.length, truncated: false };
+  }
+  const sliced = buffer.subarray(0, remaining).toString("utf8");
+  return { value: safeBase + sliced, used: remaining, truncated: true };
 };
 
 export const handleAgentCommandUpdate = async (
@@ -337,6 +440,12 @@ export const handleAgentCommandUpdate = async (
       : typeof (message as CommandResponseMessage).stderr === "string"
         ? (message as CommandResponseMessage).stderr
         : "";
+  const messageTruncated =
+    typeof (message as CommandResponseMessage).truncated === "boolean"
+      ? (message as CommandResponseMessage).truncated
+      : typeof (message as CommandChunkMessage).truncated === "boolean"
+        ? (message as CommandChunkMessage).truncated
+        : false;
 
   const status = isChunk ? "running" : mapAgentStatusToDb((message as CommandResponseMessage).status);
   const exitCode =
@@ -356,12 +465,22 @@ export const handleAgentCommandUpdate = async (
         ? null
         : undefined;
 
+  const existingBytes =
+    Buffer.byteLength(command.stdout, "utf8") + Buffer.byteLength(command.stderr, "utf8");
+  let remaining = COMMAND_OUTPUT_MAX_BYTES - existingBytes;
+  const stdoutResult = clampOutputChunk(command.stdout, stdoutChunk, remaining);
+  remaining -= stdoutResult.used;
+  const stderrResult = clampOutputChunk(command.stderr, stderrChunk, remaining);
+  const truncated =
+    command.truncated || messageTruncated || stdoutResult.truncated || stderrResult.truncated;
+
   const updated = await prisma.command.update({
     where: { id: commandId },
     data: {
       status,
-      stdout: command.stdout + stdoutChunk,
-      stderr: command.stderr + stderrChunk,
+      stdout: stdoutResult.value,
+      stderr: stderrResult.value,
+      truncated,
       exitCode: exitCode ?? command.exitCode,
       startedAt: startedAt !== undefined ? startedAt : command.startedAt ?? new Date(),
       finishedAt:
@@ -386,6 +505,9 @@ export const handleAgentCommandUpdate = async (
     exitCode: updated.exitCode ?? null,
     stdout: updated.stdout,
     stderr: updated.stderr,
+    commandTarget: updated.commandTarget as CommandTarget,
+    commandSource: updated.commandSource as CommandSource,
+    truncated: updated.truncated,
   });
 
   return true;
@@ -411,6 +533,16 @@ export const normalizeCommandStatus = (
   const stderr = typeof message.stderr === "string" ? message.stderr : undefined;
   const dongleId = typeof message.dongle_id === "string" ? message.dongle_id : undefined;
   const groupId = typeof message.group_id === "string" ? message.group_id : undefined;
+  const commandTarget =
+    message.command_target === "agent" || message.command_target === "dongle"
+      ? message.command_target
+      : undefined;
+  const commandSource =
+    message.command_source === "web" || message.command_source === "agent" || message.command_source === "system"
+      ? message.command_source
+      : undefined;
+  const truncated =
+    typeof message.truncated === "boolean" ? message.truncated : undefined;
 
   return {
     type: "command_status",
@@ -423,5 +555,8 @@ export const normalizeCommandStatus = (
     stderr,
     dongle_id: dongleId,
     group_id: groupId,
+    command_target: commandTarget,
+    command_source: commandSource,
+    truncated,
   };
 };
