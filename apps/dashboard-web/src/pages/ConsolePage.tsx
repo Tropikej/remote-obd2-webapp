@@ -10,18 +10,60 @@ import {
   Grid,
   MenuItem,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
-import type { DongleSummary } from "@dashboard/shared";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { DongleDetail, DongleSummary } from "@dashboard/shared";
+import { FormEvent, type SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, type CommandStatus, type GroupResponse } from "../api/client";
 import { useSse, type SseEvent } from "../hooks/useSse";
 
 type TargetType = "dongle" | "group";
 
-const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "unknown");
+type TabPanelProps = {
+  value: number;
+  index: number;
+  children: React.ReactNode;
+  testId?: string;
+};
+
+const TabPanel = ({ value, index, children, testId }: TabPanelProps) => {
+  if (value !== index) {
+    return null;
+  }
+  return (
+    <Box role="tabpanel" aria-labelledby={`console-tab-${index}`} sx={{ pt: 2 }} data-testid={testId}>
+      {children}
+    </Box>
+  );
+};
+
+const normalizeCanId = (value: string | null | undefined) =>
+  (value ?? "").trim().toLowerCase().replace(/^0x/, "");
+
+const matchesCanId = (value: string | null | undefined, filter: string) => {
+  if (!filter.trim()) return true;
+  const normalizedFilter = normalizeCanId(filter);
+  const candidate = normalizeCanId(value);
+  if (!candidate) return false;
+  return candidate.includes(normalizedFilter);
+};
+
+const estimateFrameBits = (data: Record<string, any>) => {
+  const dlcRaw =
+    typeof data?.dlc === "number"
+      ? data.dlc
+      : typeof data?.data_hex === "string"
+        ? Math.floor(data.data_hex.length / 2)
+        : 0;
+  const dlc = Math.min(Math.max(dlcRaw, 0), 8);
+  const isExtended = data?.is_extended === true;
+  const baseBits = isExtended ? 67 : 47;
+  return baseBits + dlc * 8;
+};
 
 const EventRow = ({ event }: { event: SseEvent }) => {
   const data = event.data as Record<string, any> | string | null;
@@ -81,8 +123,10 @@ export const ConsolePage = () => {
   const [targetId, setTargetId] = useState<string>(initialTargetId);
   const [dongles, setDongles] = useState<DongleSummary[]>([]);
   const [groups, setGroups] = useState<GroupResponse[]>([]);
+  const [selectedDongle, setSelectedDongle] = useState<DongleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
   const [command, setCommand] = useState({ name: "remote", args: "status", timeout: 5000 });
   const [allowDangerous, setAllowDangerous] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -92,17 +136,23 @@ export const ConsolePage = () => {
     isExtended: false,
     intervalMs: 500,
   });
+  const [eventsOpen, setEventsOpen] = useState(true);
   const [canMessage, setCanMessage] = useState<string | null>(null);
   const [canSending, setCanSending] = useState(false);
   const canTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canFrameRef = useRef(canFrame);
   const targetIdRef = useRef(targetId);
   const [filters, setFilters] = useState({
-    showRx: true,
-    showTx: true,
+    showCan: true,
+    showCommands: true,
     showLogs: true,
     showPresence: true,
+    showGroupState: true,
+    showStreamReset: true,
+    showRx: true,
+    showTx: true,
     search: "",
+    canId: "",
   });
   const isDevMode = import.meta.env.DEV;
 
@@ -115,23 +165,53 @@ export const ConsolePage = () => {
 
   const { events, connected, error: sseError, streamResets, clearEvents, lastEventId } = useSse(streamUrl);
 
-  const canRate = useMemo(() => {
+  const canStats = useMemo(() => {
     const now = Date.now();
     const windowMs = 5000;
     const frames = events.filter((evt) => evt.type === "can_frame" && now - evt.receivedAt <= windowMs);
-    return (frames.length / (windowMs / 1000)).toFixed(1);
+    const rxCount = frames.filter((evt) => (evt.data as any)?.direction === "rx").length;
+    const txCount = frames.filter((evt) => (evt.data as any)?.direction === "tx").length;
+    const total = frames.length;
+    const rate = total / (windowMs / 1000);
+    return { rxCount, txCount, total, rate, windowMs };
   }, [events]);
+
+  const bitrate = selectedDongle?.can_config?.bitrate ?? null;
+  const bitrateKnown = typeof bitrate === "number" && bitrate > 0;
+  const busLoad = useMemo(() => {
+    if (!bitrateKnown) return null;
+    const windowSec = canStats.windowMs / 1000;
+    const totalBits = events
+      .filter((evt) => evt.type === "can_frame" && Date.now() - evt.receivedAt <= canStats.windowMs)
+      .reduce((sum, evt) => sum + estimateFrameBits(evt.data as Record<string, any>), 0);
+    const load = totalBits / (bitrate * windowSec);
+    return Math.min(Math.max(load, 0), 1);
+  }, [events, bitrateKnown, bitrate, canStats.windowMs]);
+
+  const filtersActive = useMemo(() => {
+    if (filters.search.trim() || filters.canId.trim()) return true;
+    if (!filters.showCan || !filters.showCommands || !filters.showLogs || !filters.showPresence) return true;
+    if (!filters.showGroupState || !filters.showStreamReset) return true;
+    if (!filters.showRx || !filters.showTx) return true;
+    return false;
+  }, [filters]);
 
   const filteredEvents = useMemo(() => {
     const text = filters.search.trim().toLowerCase();
     return events.filter((event) => {
       const data = event.data as any;
       if (event.type === "can_frame") {
+        if (!filters.showCan) return false;
         if (!filters.showRx && data?.direction === "rx") return false;
         if (!filters.showTx && data?.direction === "tx") return false;
+        const idValue = data?.id ?? data?.can_id ?? "";
+        if (!matchesCanId(idValue, filters.canId)) return false;
       }
+      if (event.type === "command_status" && !filters.showCommands) return false;
       if (event.type === "log" && !filters.showLogs) return false;
       if (event.type === "presence" && !filters.showPresence) return false;
+      if (event.type === "group_state" && !filters.showGroupState) return false;
+      if (event.type === "stream_reset" && !filters.showStreamReset) return false;
       if (!text) return true;
       return JSON.stringify(event.data ?? "").toLowerCase().includes(text);
     });
@@ -145,9 +225,14 @@ export const ConsolePage = () => {
   const recentCanEvents = useMemo(() => {
     return events
       .filter((evt) => evt.type === "can_frame")
+      .filter((evt) => {
+        const data = evt.data as any;
+        const idValue = data?.id ?? data?.can_id ?? "";
+        return matchesCanId(idValue, filters.canId);
+      })
       .slice(-40)
       .reverse();
-  }, [events]);
+  }, [events, filters.canId]);
 
   const load = async () => {
     setLoading(true);
@@ -183,6 +268,29 @@ export const ConsolePage = () => {
       canTimerRef.current = null;
       setCanSending(false);
     }
+  }, [targetId, targetType]);
+
+  useEffect(() => {
+    if (!targetId || targetType !== "dongle") {
+      setSelectedDongle(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getDongle(targetId)
+      .then((detail) => {
+        if (!cancelled) {
+          setSelectedDongle(detail);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedDongle(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [targetId, targetType]);
 
   useEffect(() => {
@@ -272,6 +380,14 @@ export const ConsolePage = () => {
     }, interval);
   };
 
+  const handleTabChange = (_event: SyntheticEvent, value: number) => {
+    setActiveTab(value);
+  };
+
+  const busLoadLabel = bitrateKnown
+    ? `Bus load (est): ${(busLoad ?? 0) * 100 < 0.1 ? "<0.1" : ((busLoad ?? 0) * 100).toFixed(1)}%`
+    : "Bus load: missing parameters (bitrate unknown)";
+
   return (
     <Stack spacing={3}>
       <Box>
@@ -289,247 +405,203 @@ export const ConsolePage = () => {
         <Alert severity="info">Stream reset received {streamResets} time(s). History was flushed.</Alert>
       ) : null}
 
-      <InfoCard title="Target">
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={3}>
-            <TextField
-              select
-              label="Target type"
-              value={targetType}
-              onChange={(e) => {
-                const nextType = e.target.value as TargetType;
-                setTargetType(nextType);
-                const fallback = nextType === "dongle" ? dongles[0]?.id ?? "" : groups[0]?.id ?? "";
-                setTargetId(fallback);
-                if (nextType === "dongle") {
-                  navigate("/console", { replace: true });
-                } else {
-                  navigate(`/console?group=${fallback}`, { replace: true });
-                }
-              }}
-              fullWidth
-            >
-              <MenuItem value="dongle">Dongle</MenuItem>
-              <MenuItem value="group">Group</MenuItem>
-            </TextField>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <TextField
-              select
-              label={targetType === "dongle" ? "Dongle" : "Group"}
-              value={targetId}
-              onChange={(e) => setTargetId(e.target.value)}
-              fullWidth
-            >
-              {(targetType === "dongle" ? dongles : groups).map((item) => (
-                <MenuItem key={item.id} value={item.id}>
-                  {targetType === "dongle" ? (item as DongleSummary).device_id : item.id}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <Stack spacing={1}>
-              <StatusChip label={connected ? "Connected" : "Disconnected"} tone={connected ? "success" : "warning"} />
-              <Typography variant="caption" color="text.secondary">
-                Last Event ID: {lastEventId ?? "n/a"}
-              </Typography>
-              <Chip label={`CAN rate: ${canRate} evt/s`} size="small" />
-              <Button variant="text" size="small" onClick={clearEvents}>
-                Clear events
-              </Button>
-            </Stack>
-          </Grid>
-        </Grid>
-      </InfoCard>
-
-      <InfoCard title="Filters">
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={3}>
-            <TextField
-              label="Search"
-              value={filters.search}
-              onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
-              fullWidth
-              placeholder="Match id, data, or text"
-            />
-          </Grid>
-          <Grid item xs={12} md={9}>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              <Chip
-                label="RX"
-                color={filters.showRx ? "primary" : "default"}
-                onClick={() => setFilters((prev) => ({ ...prev, showRx: !prev.showRx }))}
-                variant={filters.showRx ? "filled" : "outlined"}
-              />
-              <Chip
-                label="TX"
-                color={filters.showTx ? "primary" : "default"}
-                onClick={() => setFilters((prev) => ({ ...prev, showTx: !prev.showTx }))}
-                variant={filters.showTx ? "filled" : "outlined"}
-              />
-              <Chip
-                label="Logs"
-                color={filters.showLogs ? "primary" : "default"}
-                onClick={() => setFilters((prev) => ({ ...prev, showLogs: !prev.showLogs }))}
-                variant={filters.showLogs ? "filled" : "outlined"}
-              />
-              <Chip
-                label="Presence"
-                color={filters.showPresence ? "primary" : "default"}
-                onClick={() => setFilters((prev) => ({ ...prev, showPresence: !prev.showPresence }))}
-                variant={filters.showPresence ? "filled" : "outlined"}
-              />
-            </Stack>
-          </Grid>
-        </Grid>
-      </InfoCard>
-
       <Grid container spacing={2}>
-        <Grid item xs={12} md={targetType === "dongle" ? 8 : 12}>
-          <InfoCard title="Events">
-            {loading ? (
-              <Typography>Loading...</Typography>
-            ) : (
-              <Box sx={{ maxHeight: 520, overflow: "auto" }}>
-                {filteredEvents.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    No events yet. Check filters or wait for traffic.
-                  </Typography>
-                ) : (
-                  filteredEvents
-                    .slice()
-                    .reverse()
-                    .map((evt) => <EventRow key={`${evt.receivedAt}-${evt.id ?? Math.random()}`} event={evt} />)
-                )}
-              </Box>
-            )}
-          </InfoCard>
-        </Grid>
+        <Grid item xs={12} md={3}>
+          <Stack spacing={2}>
+            <Box data-testid="console-target-card">
+              <InfoCard title="Target">
+                <Stack spacing={2}>
+                  <TextField
+                    select
+                    label="Target type"
+                    value={targetType}
+                    onChange={(e) => {
+                      const nextType = e.target.value as TargetType;
+                      setTargetType(nextType);
+                      const fallback = nextType === "dongle" ? dongles[0]?.id ?? "" : groups[0]?.id ?? "";
+                      setTargetId(fallback);
+                      if (nextType === "dongle") {
+                        navigate("/console", { replace: true });
+                      } else {
+                        navigate(`/console?group=${fallback}`, { replace: true });
+                      }
+                    }}
+                    fullWidth
+                    data-testid="console-target-type"
+                  >
+                    <MenuItem value="dongle">Dongle</MenuItem>
+                    <MenuItem value="group">Group</MenuItem>
+                  </TextField>
+                  <TextField
+                    select
+                    label={targetType === "dongle" ? "Dongle" : "Group"}
+                    value={targetId}
+                    onChange={(e) => setTargetId(e.target.value)}
+                    fullWidth
+                    data-testid="console-target-id"
+                  >
+                    {(targetType === "dongle" ? dongles : groups).map((item) => (
+                      <MenuItem key={item.id} value={item.id}>
+                        {targetType === "dongle" ? (item as DongleSummary).device_id : item.id}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Stack spacing={1}>
+                    <StatusChip label={connected ? "Connected" : "Disconnected"} tone={connected ? "success" : "warning"} />
+                    <Typography variant="caption" color="text.secondary">
+                      Last Event ID: {lastEventId ?? "n/a"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      CAN rate: {canStats.rate.toFixed(1)} evt/s
+                    </Typography>
+                    <Button variant="text" size="small" onClick={clearEvents}>
+                      Clear events
+                    </Button>
+                  </Stack>
+                </Stack>
+              </InfoCard>
+            </Box>
 
-        {targetType === "dongle" ? (
-          <Grid item xs={12} md={4}>
-            <Stack spacing={2}>
-              <InfoCard title="Command console">
-                <Stack spacing={2} component="form" onSubmit={handleSendCommand}>
-                  <Typography variant="body2" color="text.secondary">
-                    Run a safe dongle CLI command. Status updates stream back via SSE.
-                  </Typography>
-                  {commandMessage ? <Alert severity="info">{commandMessage}</Alert> : null}
+            <Box data-testid="console-filters-card">
+              <InfoCard title="Filters">
+                <Stack spacing={2}>
                   <TextField
-                    label="Command"
-                    value={command.name}
-                    onChange={(e) => setCommand((prev) => ({ ...prev, name: e.target.value }))}
-                    required
+                    label="Search"
+                    value={filters.search}
+                    onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
                     fullWidth
+                    placeholder="Match id, data, or text"
+                    data-testid="console-filter-search"
                   />
-                  <TextField
-                    label="Arguments"
-                    value={command.args}
-                    onChange={(e) => setCommand((prev) => ({ ...prev, args: e.target.value }))}
-                    helperText="Space-separated"
-                    fullWidth
-                  />
-                  <TextField
-                    label="Timeout (ms)"
-                    type="number"
-                    value={command.timeout}
-                    onChange={(e) =>
-                      setCommand((prev) => ({ ...prev, timeout: Number(e.target.value) || 0 }))
-                    }
-                    inputProps={{ min: 1000 }}
-                    fullWidth
-                  />
-                  {isDevMode ? (
+                  <Divider />
+                  <Typography variant="subtitle2">Event types</Typography>
+                  <Stack spacing={1}>
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={allowDangerous}
-                          onChange={(e) => setAllowDangerous(e.target.checked)}
+                          checked={filters.showCan}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showCan: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-can" }}
                         />
                       }
-                      label="Allow dangerous commands (dev only)"
+                      label="CAN"
                     />
-                  ) : null}
-                  <PrimaryButton type="submit" disabled={!targetId}>
-                    Send command
-                  </PrimaryButton>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showCommands}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showCommands: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-commands" }}
+                        />
+                      }
+                      label="Commands"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showLogs}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showLogs: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-logs" }}
+                        />
+                      }
+                      label="Logs"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showPresence}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showPresence: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-presence" }}
+                        />
+                      }
+                      label="Presence"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showGroupState}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showGroupState: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-group" }}
+                        />
+                      }
+                      label="Group state"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showStreamReset}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showStreamReset: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-reset" }}
+                        />
+                      }
+                      label="Stream reset"
+                    />
+                  </Stack>
+                  <Divider />
+                  <Typography variant="subtitle2">CAN direction</Typography>
+                  <Stack spacing={1}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showRx}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showRx: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-rx" }}
+                        />
+                      }
+                      label="RX"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={filters.showTx}
+                          onChange={(e) => setFilters((prev) => ({ ...prev, showTx: e.target.checked }))}
+                          inputProps={{ "data-testid": "console-filter-tx" }}
+                        />
+                      }
+                      label="TX"
+                    />
+                  </Stack>
                 </Stack>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle2" gutterBottom>
-                  Command log
-                </Typography>
-                <Box sx={{ maxHeight: 240, overflow: "auto" }}>
-                  {commandEvents.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No command activity yet.
-                    </Typography>
-                  ) : (
-                    commandEvents
-                      .slice(-10)
-                      .reverse()
-                      .map((evt) => {
-                        const data = evt.data as CommandStatus;
-                        return (
-                          <Box
-                            key={`${evt.id}-${evt.receivedAt}`}
-                            sx={{ borderBottom: "1px solid rgba(255,255,255,0.06)", pb: 1, mb: 1 }}
-                          >
-                            <Stack
-                              direction={{ xs: "column", sm: "row" }}
-                              spacing={1}
-                              flexWrap="wrap"
-                              sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
-                            >
-                              <Typography variant="body2">
-                                {data.command_id} – {data.status}
-                              </Typography>
-                              {data.command_target ? (
-                                <Chip label={`target:${data.command_target}`} size="small" />
-                              ) : null}
-                              {data.command_source ? (
-                                <Chip label={`source:${data.command_source}`} size="small" />
-                              ) : null}
-                              {data.truncated ? (
-                                <Chip label="truncated" size="small" color="warning" />
-                              ) : null}
-                            </Stack>
-                            <Typography variant="caption" color="text.secondary">
-                              Started: {formatDate(data.started_at)} | Done:{" "}
-                              {formatDate(data.completed_at)}
-                            </Typography>
-                            {data.stdout ? (
-                              <Typography
-                                variant="caption"
-                                display="block"
-                                sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap" }}
-                              >
-                                stdout: {data.stdout}
-                              </Typography>
-                            ) : null}
-                            {data.stderr ? (
-                              <Typography
-                                variant="caption"
-                                display="block"
-                                color="error"
-                                sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap" }}
-                              >
-                                stderr: {data.stderr}
-                              </Typography>
-                            ) : null}
-                          </Box>
-                        );
-                      })
-                  )}
-                </Box>
               </InfoCard>
-              <InfoCard title="CAN console">
+            </Box>
+          </Stack>
+        </Grid>
+
+        <Grid item xs={12} md={eventsOpen ? 6 : 9}>
+          <Box data-testid="console-tabs-card">
+            <InfoCard title="Console">
+              {!eventsOpen ? (
+                <Stack direction="row" justifyContent="flex-end">
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => setEventsOpen(true)}
+                    data-testid="console-events-show"
+                  >
+                    Show events
+                  </Button>
+                </Stack>
+              ) : null}
+              <Tabs value={activeTab} onChange={handleTabChange} aria-label="Console tabs">
+                <Tab label="CAN console" id="console-tab-0" data-testid="console-tab-can" />
+                <Tab label="Command console" id="console-tab-1" data-testid="console-tab-command" />
+              </Tabs>
+
+              <TabPanel value={activeTab} index={0} testId="console-panel-can">
                 <Stack spacing={2}>
                   <Typography variant="body2" color="text.secondary">
-                    Send a CAN frame to the selected dongle and watch live traffic.
+                    Send a CAN frame to the selected dongle and monitor live traffic.
                   </Typography>
                   {canMessage ? <Alert severity="info">{canMessage}</Alert> : null}
-                  <Stack spacing={2} component="form" onSubmit={(e) => { e.preventDefault(); void sendCanOnce(); }}>
+                  <Stack
+                    spacing={2}
+                    component="form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void sendCanOnce();
+                    }}
+                    data-testid="console-can-form"
+                  >
                     <TextField
                       label="CAN ID"
                       value={canFrame.canId}
@@ -538,6 +610,7 @@ export const ConsolePage = () => {
                       }
                       required
                       fullWidth
+                      data-testid="console-can-id"
                     />
                     <TextField
                       label="Data (hex)"
@@ -547,6 +620,7 @@ export const ConsolePage = () => {
                       }
                       helperText="Up to 8 bytes (16 hex chars)"
                       fullWidth
+                      data-testid="console-can-data"
                     />
                     <Stack
                       direction={{ xs: "column", sm: "row" }}
@@ -563,6 +637,7 @@ export const ConsolePage = () => {
                                 isExtended: e.target.checked,
                               }))
                             }
+                            inputProps={{ "data-testid": "console-can-extended" }}
                           />
                         }
                         label="Extended ID"
@@ -577,7 +652,7 @@ export const ConsolePage = () => {
                             intervalMs: Number(e.target.value) || 0,
                           }))
                         }
-                        inputProps={{ min: 50 }}
+                        inputProps={{ min: 50, "data-testid": "console-can-interval" }}
                         fullWidth
                         sx={{ maxWidth: { xs: "100%", sm: 160 } }}
                       />
@@ -587,6 +662,7 @@ export const ConsolePage = () => {
                         type="submit"
                         disabled={!targetId}
                         sx={{ width: { xs: "100%", sm: "auto" } }}
+                        data-testid="console-can-send"
                       >
                         Send once
                       </PrimaryButton>
@@ -595,14 +671,48 @@ export const ConsolePage = () => {
                         onClick={togglePeriodic}
                         disabled={!targetId}
                         sx={{ width: { xs: "100%", sm: "auto" } }}
+                        data-testid="console-can-periodic"
                       >
                         {canSending ? "Stop periodic" : "Start periodic"}
                       </Button>
                     </Stack>
                   </Stack>
+
                   <Divider />
+
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle2">CAN stats (last 5s)</Typography>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={2} flexWrap="wrap">
+                      <Chip label={`Frames: ${canStats.total}`} size="small" />
+                      <Chip label={`RX: ${canStats.rxCount}`} size="small" />
+                      <Chip label={`TX: ${canStats.txCount}`} size="small" />
+                      <Chip
+                        label={
+                          bitrateKnown
+                            ? `Bitrate: ${bitrate?.toLocaleString()} bps`
+                            : "Bitrate: unknown"
+                        }
+                        size="small"
+                      />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      {busLoadLabel}
+                    </Typography>
+                  </Stack>
+
+                  <Divider />
+
+                  <TextField
+                    label="Filter CAN ID"
+                    value={filters.canId}
+                    onChange={(e) => setFilters((prev) => ({ ...prev, canId: e.target.value }))}
+                    fullWidth
+                    placeholder="e.g. 0x123"
+                    data-testid="console-can-filter"
+                  />
+
                   <Typography variant="subtitle2">Live CAN frames</Typography>
-                  <Box sx={{ maxHeight: 220, overflow: "auto" }}>
+                  <Box sx={{ maxHeight: 240, overflow: "auto" }} data-testid="console-can-frames">
                     <Box
                       sx={{
                         display: "grid",
@@ -661,8 +771,175 @@ export const ConsolePage = () => {
                     )}
                   </Box>
                 </Stack>
+              </TabPanel>
+              <TabPanel value={activeTab} index={1} testId="console-panel-command">
+                <Stack spacing={2}>
+                  <Typography variant="body2" color="text.secondary">
+                    Run a safe dongle CLI command. Status updates stream back via SSE.
+                  </Typography>
+                  {commandMessage ? <Alert severity="info">{commandMessage}</Alert> : null}
+                  <Stack spacing={2} component="form" onSubmit={handleSendCommand} data-testid="console-command-form">
+                    <TextField
+                      label="Command"
+                      value={command.name}
+                      onChange={(e) => setCommand((prev) => ({ ...prev, name: e.target.value }))}
+                      required
+                      fullWidth
+                      data-testid="console-command-name"
+                    />
+                    <TextField
+                      label="Arguments"
+                      value={command.args}
+                      onChange={(e) => setCommand((prev) => ({ ...prev, args: e.target.value }))}
+                      helperText="Space-separated"
+                      fullWidth
+                      data-testid="console-command-args"
+                    />
+                    <TextField
+                      label="Timeout (ms)"
+                      type="number"
+                      value={command.timeout}
+                      onChange={(e) =>
+                        setCommand((prev) => ({ ...prev, timeout: Number(e.target.value) || 0 }))
+                      }
+                      inputProps={{ min: 1000, "data-testid": "console-command-timeout" }}
+                      fullWidth
+                    />
+                    {isDevMode ? (
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={allowDangerous}
+                            onChange={(e) => setAllowDangerous(e.target.checked)}
+                            inputProps={{ "data-testid": "console-command-dangerous" }}
+                          />
+                        }
+                        label="Allow dangerous commands (dev only)"
+                      />
+                    ) : null}
+                    <PrimaryButton type="submit" disabled={!targetId} data-testid="console-command-send">
+                      Send command
+                    </PrimaryButton>
+                  </Stack>
+
+                  <Divider />
+
+                  <Typography variant="subtitle2">Command log</Typography>
+                  <Box
+                    sx={{
+                      backgroundColor: "#fff",
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      borderRadius: 1,
+                      color: "text.primary",
+                      px: 2,
+                      py: 1.5,
+                      maxHeight: 260,
+                      overflow: "auto",
+                      fontFamily: "monospace",
+                    }}
+                    data-testid="console-command-log"
+                  >
+                    {commandEvents.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No command activity yet.
+                      </Typography>
+                    ) : (
+                      commandEvents
+                        .slice(-12)
+                        .reverse()
+                        .map((evt) => {
+                          const data = evt.data as CommandStatus;
+                          return (
+                            <Box
+                              key={`${evt.id}-${evt.receivedAt}`}
+                              sx={{ borderBottom: "1px solid rgba(255,255,255,0.08)", pb: 1, mb: 1 }}
+                            >
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1}
+                                flexWrap="wrap"
+                                sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                              >
+                                <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                                  [{new Date(evt.receivedAt).toLocaleTimeString()}] {data.command_id} - {data.status}
+                                </Typography>
+                                {data.command_target ? (
+                                  <Chip label={`target:${data.command_target}`} size="small" />
+                                ) : null}
+                                {data.command_source ? (
+                                  <Chip label={`source:${data.command_source}`} size="small" />
+                                ) : null}
+                                {data.truncated ? (
+                                  <Chip label="truncated" size="small" color="warning" />
+                                ) : null}
+                              </Stack>
+                              {data.stdout ? (
+                                <Typography
+                                  variant="caption"
+                                  display="block"
+                                  sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap" }}
+                                >
+                                  stdout: {data.stdout}
+                                </Typography>
+                              ) : null}
+                              {data.stderr ? (
+                                <Typography
+                                  variant="caption"
+                                  display="block"
+                                  color="error"
+                                  sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap" }}
+                                >
+                                  stderr: {data.stderr}
+                                </Typography>
+                              ) : null}
+                            </Box>
+                          );
+                        })
+                    )}
+                  </Box>
+                </Stack>
+              </TabPanel>
+            </InfoCard>
+          </Box>
+        </Grid>
+
+        {eventsOpen ? (
+          <Grid item xs={12} md={3}>
+            <Box data-testid="console-events-card">
+              <InfoCard title="Events">
+                <Stack direction="row" justifyContent="flex-end">
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => setEventsOpen(false)}
+                    data-testid="console-events-hide"
+                  >
+                    Hide events
+                  </Button>
+                </Stack>
+                {filtersActive ? (
+                  <Typography variant="caption" color="text.secondary" data-testid="console-filters-active">
+                    Filters active
+                  </Typography>
+                ) : null}
+                {loading ? (
+                  <Typography>Loading...</Typography>
+                ) : (
+                  <Box sx={{ maxHeight: 560, overflow: "auto", mt: 1 }} data-testid="console-events-list">
+                    {filteredEvents.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No events yet. Check filters or wait for traffic.
+                      </Typography>
+                    ) : (
+                      filteredEvents
+                        .slice()
+                        .reverse()
+                        .map((evt) => <EventRow key={`${evt.receivedAt}-${evt.id ?? Math.random()}`} event={evt} />)
+                    )}
+                  </Box>
+                )}
               </InfoCard>
-            </Stack>
+            </Box>
           </Grid>
         ) : null}
       </Grid>

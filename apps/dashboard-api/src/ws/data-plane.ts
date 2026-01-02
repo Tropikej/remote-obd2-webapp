@@ -15,6 +15,8 @@ type AgentConnection = {
 const connections = new Map<string, AgentConnection>();
 const redis = getRedis();
 const STREAM_MAX_LEN = 200000;
+const DONGLE_TOUCH_INTERVAL_MS = 30000;
+const lastDongleTouch = new Map<string, number>();
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -112,88 +114,119 @@ const sendToAgent = (agentId: string, payload: any) => {
   return true;
 };
 
-const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => {
-  const group = await prisma.dongleGroup.findUnique({
-    where: { id: message.group_id },
-    include: { dongleA: true, dongleB: true },
+const touchDongle = async (dongleId: string, agentId: string) => {
+  const now = Date.now();
+  const lastTouch = lastDongleTouch.get(dongleId);
+  if (lastTouch && now - lastTouch < DONGLE_TOUCH_INTERVAL_MS) {
+    return;
+  }
+  lastDongleTouch.set(dongleId, now);
+  await prisma.dongle.updateMany({
+    where: { id: dongleId },
+    data: { lastSeenAt: new Date(now), lastSeenAgentId: agentId },
   });
-  if (!group || group.mode === "INACTIVE") {
+};
+
+const handleCanFrame = async (agentId: string, message: DataPlaneCanMessage) => {
+  if (!message.dongle_id) {
     return;
   }
 
-  const direction =
-    message.dongle_id === group.dongleAId
-      ? "a_to_b"
-      : message.dongle_id === group.dongleBId
-        ? "b_to_a"
-        : null;
-  if (!direction) {
+  await touchDongle(message.dongle_id, agentId);
+
+  const tsIso = message.frame.ts || new Date().toISOString();
+  const group = message.group_id
+    ? await prisma.dongleGroup.findUnique({
+        where: { id: message.group_id },
+        include: { dongleA: true, dongleB: true },
+      })
+    : null;
+  let direction: "a_to_b" | "b_to_a" | null = null;
+
+  if (group && group.mode !== "INACTIVE") {
+    direction =
+      message.dongle_id === group.dongleAId
+        ? "a_to_b"
+        : message.dongle_id === group.dongleBId
+          ? "b_to_a"
+          : null;
+    if (
+      direction &&
+      ((direction === "a_to_b" && group.dongleA.lastSeenAgentId !== agentId) ||
+        (direction === "b_to_a" && group.dongleB.lastSeenAgentId !== agentId))
+    ) {
+      direction = null;
+    }
+  }
+
+  const dongleDirection =
+    direction === "a_to_b"
+      ? "tx"
+      : direction === "b_to_a"
+        ? "rx"
+        : message.frame.direction ?? "rx";
+
+  streamManager.publish(`dongle:${message.dongle_id}`, "can_frame", {
+    type: "can_frame",
+    group_id: message.group_id,
+    dongle_id: message.dongle_id,
+    direction: dongleDirection,
+    bus: message.frame.bus,
+    id: message.frame.can_id,
+    can_id: message.frame.can_id,
+    is_extended: message.frame.is_extended,
+    dlc: message.frame.dlc,
+    data_hex: message.frame.data_hex,
+    ts: tsIso,
+  });
+
+  if (!direction || !group || group.mode === "INACTIVE") {
     return;
   }
-  if (
-    (direction === "a_to_b" && group.dongleA.lastSeenAgentId !== agentId) ||
-    (direction === "b_to_a" && group.dongleB.lastSeenAgentId !== agentId)
-  ) {
+  const groupId = message.group_id;
+  if (!groupId) {
     return;
   }
 
+  const targetDongleId = direction === "a_to_b" ? group.dongleBId : group.dongleAId;
   const targetAgentId =
     direction === "a_to_b" ? group.dongleB.lastSeenAgentId : group.dongleA.lastSeenAgentId;
-  const payload: {
+  const relayPayload: {
     type: "can_frame";
     group_id: string;
     dongle_id: string;
+    target_dongle_id: string;
     direction: "a_to_b" | "b_to_a";
     frame: DataPlaneCanMessage["frame"] & { ts: string };
   } = {
     type: "can_frame",
-    group_id: message.group_id,
+    group_id: groupId,
     dongle_id: message.dongle_id,
+    target_dongle_id: targetDongleId,
     direction,
     frame: {
       ...message.frame,
-      ts: message.frame.ts || new Date().toISOString(),
+      ts: tsIso,
     },
   };
 
-  // Publish to SSE streams for group and dongle consoles.
-  const tsIso = payload.frame.ts;
-  streamManager.publish(`dongle:${payload.dongle_id}`, "can_frame", {
+  streamManager.publish(`group:${relayPayload.group_id}`, "can_frame", {
     type: "can_frame",
-    group_id: payload.group_id,
-    dongle_id: payload.dongle_id,
-    direction:
-      payload.direction === "a_to_b"
-        ? "tx"
-        : payload.direction === "b_to_a"
-          ? "rx"
-          : payload.direction,
-    bus: payload.frame.bus,
-    id: payload.frame.can_id,
-    can_id: payload.frame.can_id,
-    is_extended: payload.frame.is_extended,
-    dlc: payload.frame.dlc,
-    data_hex: payload.frame.data_hex,
+    group_id: relayPayload.group_id,
+    dongle_id: relayPayload.dongle_id,
+    direction: relayPayload.direction,
+    bus: relayPayload.frame.bus,
+    id: relayPayload.frame.can_id,
+    can_id: relayPayload.frame.can_id,
+    is_extended: relayPayload.frame.is_extended,
+    dlc: relayPayload.frame.dlc,
+    data_hex: relayPayload.frame.data_hex,
     ts: tsIso,
   });
 
-  streamManager.publish(`group:${payload.group_id}`, "can_frame", {
-    type: "can_frame",
-    group_id: payload.group_id,
-    dongle_id: payload.dongle_id,
-    direction: payload.direction,
-    bus: payload.frame.bus,
-    id: payload.frame.can_id,
-    can_id: payload.frame.can_id,
-    is_extended: payload.frame.is_extended,
-    dlc: payload.frame.dlc,
-    data_hex: payload.frame.data_hex,
-    ts: tsIso,
-  });
-
-  const delivered = targetAgentId ? sendToAgent(targetAgentId, payload) : false;
+  const delivered = targetAgentId ? sendToAgent(targetAgentId, relayPayload) : false;
   if (!delivered) {
-    await bufferFrame(message.group_id, direction, payload);
+    await bufferFrame(groupId, direction, relayPayload);
     await markGroupMode(group.id, "DEGRADED", {
       offlineSide: direction === "a_to_b" ? "B" : "A",
     });
