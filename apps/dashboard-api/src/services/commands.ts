@@ -383,9 +383,16 @@ export const getCommandForUser = async (
   };
 };
 
+const sanitizeOutput = (value: string | undefined) => {
+  if (!value) {
+    return "";
+  }
+  return value.replace(/\u0000/g, "");
+};
+
 const clampOutputChunk = (base: string | undefined, chunk: string | undefined, remaining: number) => {
   const safeBase = base ?? "";
-  const safeChunk = chunk ?? "";
+  const safeChunk = sanitizeOutput(chunk);
   if (!safeChunk) {
     return { value: safeBase, used: 0, truncated: false };
   }
@@ -422,9 +429,9 @@ export const handleAgentCommandUpdate = async (
     isChunk && typeof message.data === "string"
       ? (() => {
           try {
-            return Buffer.from(message.data, "base64").toString("utf8");
+            return sanitizeOutput(Buffer.from(message.data, "base64").toString("utf8"));
           } catch {
-            return message.data;
+            return sanitizeOutput(message.data);
           }
         })()
       : "";
@@ -432,13 +439,13 @@ export const handleAgentCommandUpdate = async (
     isChunk && (message as CommandChunkMessage).stream === "stdout"
       ? decodedChunk
       : typeof (message as CommandResponseMessage).stdout === "string"
-        ? (message as CommandResponseMessage).stdout
+        ? sanitizeOutput((message as CommandResponseMessage).stdout)
         : "";
   const stderrChunk =
     isChunk && (message as CommandChunkMessage).stream === "stderr"
       ? decodedChunk
       : typeof (message as CommandResponseMessage).stderr === "string"
-        ? (message as CommandResponseMessage).stderr
+        ? sanitizeOutput((message as CommandResponseMessage).stderr)
         : "";
   const messageTruncated =
     typeof (message as CommandResponseMessage).truncated === "boolean"
