@@ -1,4 +1,4 @@
-# New Dashboard Specification — OBD2 Déporté (post‑POC)
+﻿# New Dashboard Specification â€” OBD2 DÃ©portÃ© (postâ€‘POC)
 
 **Version:** v0.7 (supersedes v0.6)  
 **Status:** Draft (implementation-ready)  
@@ -6,22 +6,22 @@
 **Primary deployment target:** **Ubuntu** (VPS for Cloud Dashboard, desktop OS for Bridge Agent).  
 **Mandatory runtime component:** **Bridge Agent (tray app)** is required to use dongles.  
 
-> **Decision:** “Pairing Hub” is **NOT** a distinct service. It is a **module inside the single Cloud API** (same deployment, same DB).
+> **Decision:** â€œPairing Hubâ€ is **NOT** a distinct service. It is a **module inside the single Cloud API** (same deployment, same DB).
 
 ---
 
 ## 0. Changelog
 
 ### v0.7 (this document)
-- Fix version mismatch (v0.4 → v0.7).
+- Fix version mismatch (v0.4 â†’ v0.7).
 - Lock backend choice: **Express**.
 - Add **system diagrams** (control plane + data plane).
-- Add **Data-plane routing & buffering** section for 2‑dongle groups (VPS relay now; multi-region later).
+- Add **Data-plane routing & buffering** section for 2â€‘dongle groups (VPS relay now; multi-region later).
 - Make **Discovery** protocol implementable: versioning, framing, length, CRC, interface selection rules.
 - Specify **pairing mode TTL**, PIN attempt limits, cooldown, and **SECURITY_HOLD triggers**.
 - Add **API versioning** (`/api/v1`) + request/response schemas + standardized error format.
 - Add **Streaming (SSE) contract**: event types, schema, reconnection, backpressure.
-- Add **Key management** section (AES‑GCM key rotation + envelope format).
+- Add **Key management** section (AESâ€‘GCM key rotation + envelope format).
 - Expand **DB schema** with missing tables (`sessions`, `email_verification_tokens`, `password_reset_tokens`, optional `email_outbox`) + constraints/indexes.
 - Add **Security review**: threat model controls (CSRF, rate limits, audit coverage, agent trust).
 - Expand **CI/CD & ops**: Prisma migrations + rollback, secrets, backups, observability.
@@ -65,7 +65,7 @@ This spec turns the POC into a **production dashboard** with clear operational s
 
 - No multi-tenant organizations/workspaces beyond user roles (v1).
 - No browser-to-dongle direct connectivity (intentionally avoided).
-- No full “diagnostic tool emulator” in the web UI (console only).
+- No full â€œdiagnostic tool emulatorâ€ in the web UI (console only).
 - No native mobile apps (v1).
 
 ---
@@ -89,7 +89,7 @@ This spec turns the POC into a **production dashboard** with clear operational s
 
 ### 5.1 Control plane vs data plane
 
-- **Control plane** is cloud-driven (UI ↔ API ↔ Agent ↔ Dongle).
+- **Control plane** is cloud-driven (UI â†” API â†” Agent â†” Dongle).
 - **Data plane** (CAN frame routing) is **relayed on the VPS** in v1.
 
 ### 5.2 System diagrams
@@ -148,9 +148,9 @@ repo/
 - **Frontend:** Vite + TypeScript
 - **Backend:** Node.js + **Express** (decision)
 - **DB:** PostgreSQL
-- **Realtime control plane:** WebSocket (API ↔ Agent)
+- **Realtime control plane:** WebSocket (API â†” Agent)
 - **Streaming to UI:** Server-Sent Events (SSE)
-- **Data plane buffering:** **Redis Streams** (required for v1 “buffer, don’t drop”)
+- **Data plane buffering:** **Redis Streams** (required for v1 â€œbuffer, donâ€™t dropâ€)
 - **ORM/Migrations:** Prisma
 - **Reverse proxy:** Nginx
 - **Process manager:** systemd
@@ -227,9 +227,9 @@ The agent MUST broadcast discovery per eligible interface:
 - Explicitly exclude typical virtual/VPN interfaces:
   - names matching: `tun*`, `tap*`, `wg*`, `utun*`, `ppp*`, `docker*`, `br-*`, `vbox*`, `vmnet*`
 - If multiple eligible interfaces exist:
-  - broadcast DISCOVER on each interface’s broadcast address
+  - broadcast DISCOVER on each interfaceâ€™s broadcast address
   - keep per-interface discovery results and merge by `device_id`
-- The UI must show dongle’s `lan_ip` as reported by that interface.
+- The UI must show dongleâ€™s `lan_ip` as reported by that interface.
 
 ---
 
@@ -268,7 +268,7 @@ ANNOUNCE payload uses TLV entries (Type-Length-Value):
 | TLV Type | Name | Value |
 |---:|---|---|
 | 0x01 | `device_id` | 8-byte device id (`dev_id`) |
-| 0x02 | `fw_build` | UTF‑8 string |
+| 0x02 | `fw_build` | UTFâ€‘8 string |
 | 0x03 | `udp_port` | uint16 |
 | 0x04 | `capabilities` | bitmask uint32 |
 | 0x05 | `proto_ver` | uint16 (REMP version supported) |
@@ -279,8 +279,8 @@ ANNOUNCE payload uses TLV entries (Type-Length-Value):
 Unknown TLVs must be ignored (forward compatible).
 
 ### 10.3 Scan rates
-- Pairing page open: every 2–5s
-- Background: every 15–30s
+- Pairing page open: every 2â€“5s
+- Background: every 15â€“30s
 
 ### 10.4 Robustness rules
 - Packets with invalid CRC are ignored.
@@ -313,7 +313,7 @@ Cloud database is the **source of truth** for ownership.
 ### 11.3 SECURITY_HOLD semantics (required)
 A dongle enters `SECURITY_HOLD` when any trigger is met:
 
-1. **Too many wrong PIN attempts** (≥ 5) within a pairing window.
+1. **Too many wrong PIN attempts** (â‰¥ 5) within a pairing window.
 2. **Reset detection** while claimed:
    - dongle reports factory reset OR device secret changes OR token no longer matches.
 3. **Suspicious agent behavior**:
@@ -324,12 +324,12 @@ A dongle enters `SECURITY_HOLD` when any trigger is met:
 
 Behavior:
 - Pairing is blocked while in `SECURITY_HOLD`.
-- UI shows “Security hold — contact support”.
+- UI shows â€œSecurity hold â€” contact supportâ€.
 - Only super-admin can clear hold (force-unpair / manual reset flow).
 
 ### 11.4 Pairing flow (v1)
 1. Agent discovers dongle (ANNOUNCE shows it available).
-2. User clicks “Enter pairing mode”.
+2. User clicks â€œEnter pairing modeâ€.
 3. Cloud API instructs agent to send `PAIRING_MODE_START` to dongle (REMP).
 4. Dongle:
    - enters pairing mode for 120s
@@ -342,11 +342,11 @@ Behavior:
 8. Cloud API issues a **dongle_token**, stores it encrypted, sends it to the agent for `PAIRING_SUBMIT`, and links dongle to the user.
 
 ### 11.5 Edge cases
-- Already owned by same user → idempotent (safe no-op)
-- Owned by another user → blocked, super-admin/support only
-- Factory reset → `RESET_DETECTED` until resolved
-- Race condition → first PIN success wins
-- No agent → pairing blocked
+- Already owned by same user â†’ idempotent (safe no-op)
+- Owned by another user â†’ blocked, super-admin/support only
+- Factory reset â†’ `RESET_DETECTED` until resolved
+- Race condition â†’ first PIN success wins
+- No agent â†’ pairing blocked
 
 ---
 
@@ -359,6 +359,11 @@ Behavior:
   - stored encrypted dongle token
   - group membership (if any)
 - All unpair events must be audited.
+
+Validation (2025-12-29):
+- Dashboard UI pairing mode + PIN submit succeeded against real hardware.
+- Unpair succeeded for the owning account.
+- A second user account could not see the paired dongle, confirming ownership gating.
 
 ---
 
@@ -393,7 +398,7 @@ If one side is offline:
 3. The group enters `DEGRADED`.
 
 #### 13.3.4 Buffering implementation (v1 decision)
-To satisfy “buffer, don’t drop” with reliability:
+To satisfy â€œbuffer, donâ€™t dropâ€ with reliability:
 - Use **Redis Streams** as the buffering layer.
 - One stream per group-direction:
   - `group:{group_id}:a_to_b`
@@ -407,7 +412,7 @@ Retention:
   - relay prioritizes keeping newest frames (trim oldest) **only as last resort**
   - all trims are audit-logged as operational events
 
-> Note: Absolute “never drop” is physically impossible under infinite offline time or finite storage.
+> Note: Absolute â€œnever dropâ€ is physically impossible under infinite offline time or finite storage.
 > The v1 contract is: **buffer within defined retention**, warn early, and keep deterministic behavior.
 
 #### 13.3.5 Replay behavior
@@ -427,8 +432,14 @@ When the offline side reconnects:
     - warns UI
 
 #### 13.3.7 Data plane message ordering
-- Preserve ordering per direction (A→B order preserved, B→A order preserved).
+- Preserve ordering per direction (Aâ†’B order preserved, Bâ†’A order preserved).
 - No global ordering guarantee across both directions.
+
+### 13.4 CAN transport routing (v1)
+- All CAN frames from a dongle are sent to the dashboard server via the bridge agent, regardless of grouping state.
+- The server always publishes those frames to the dongle console stream.
+- If the dongle is part of a group, the server relays each frame to the other dongle's agent; relaying is server-owned, not dongle-owned.
+- Data-plane CAN frames are not sampled or filtered; only the console stream may apply sampling for UI rendering.
 
 ---
 
@@ -451,7 +462,7 @@ Each dongle has a CAN configuration:
 
 ### 14.2 Configuration apply semantics
 - Apply is explicit (user action).
-- Cloud API sends config to agent → dongle.
+- Cloud API sends config to agent â†’ dongle.
 - Dongle ACK must be returned and shown in UI.
 - Config changes are audited.
 
@@ -480,16 +491,22 @@ Each dongle has a CAN configuration:
 
 ### 16.1 Transport: REMP CMD over UDP
 Flow:
-- Dashboard → Cloud API (HTTPS)
-- Cloud → Agent (WebSocket)
-- Agent → Dongle (REMP `CMD_REQ`)
-- Dongle → Agent (`CMD_RSP`)
+- Dashboard â†’ Cloud API (HTTPS)
+- Cloud â†’ Agent (WebSocket)
+- Agent â†’ Dongle (REMP `CMD_REQ`)
+- Dongle â†’ Agent (`CMD_RSP`)
 - Streamed back to UI (SSE)
 
 Security:
 - Token-authenticated
 - Allowlisted commands only (v1)
 - Per-command permission checks + audit logs
+
+### 16.2 Remote CLI over REMP (v1)
+Remote CLI uses REMP message type 4 with a binary payload (see Section 19). A request can set an allow-dangerous flag, but the API must honor it only when dev mode is enabled and the user explicitly checks the UI checkbox. Responses include a truncation flag when output exceeds the cap, and the UI must surface that to the operator. Command output is sanitized to remove NUL bytes before persistence so Postgres UTF-8 storage never fails on binary output.
+
+### 16.3 UART CLI telemetry (v1)
+Commands entered on the UART console are mirrored to the dashboard as telemetry. The dongle emits REMP message type 5 with the command line and output, and the agent forwards it to the API. The API stores telemetry in the database and publishes it as console events for the owning user. Telemetry output is capped and includes a truncated flag.
 
 ---
 
@@ -736,6 +753,7 @@ To support resume:
 - `can_frame`
 - `log`
 - `command_status`
+- `cli_telemetry`
 - `group_state`
 - `stream_reset`
 
@@ -762,6 +780,18 @@ To support resume:
 }
 ```
 
+#### Example: `cli_telemetry`
+```json
+{
+  "ts": "2025-12-22T15:31:05.000Z",
+  "dongle_id": "uuid",
+  "source": "uart",
+  "command": "net status",
+  "output": "[net] iface:eth active:eth eth:up wifi:down ip=192.168.1.170",
+  "truncated": false
+}
+```
+
 #### Example: `group_state`
 ```json
 {
@@ -783,31 +813,39 @@ This spec assumes REMP exists; this section defines the minimal message shapes n
 
 #### Correlation IDs
 All request/response pairs must include:
-- `corr_id` (UUID)
+- `corr_id` (16-byte identifier in the UDP payload; control-plane JSON may still use UUID strings)
 
-#### CMD_REQ (Agent → Dongle)
-Fields:
-- `corr_id` (uuid)
-- `command` (string, allowlisted)
-- `args` (array of strings)
-- `timeout_ms` (uint32)
+#### Remote CLI (REMP type 4)
+Request payload (big-endian):
+  u8  action = 1 (CLI_REQUEST)
+  u8  flags (bit0 = allow_dangerous)
+  u16 reserved = 0
+  u8  corr_id[16]
+  u16 cmd_len
+  u8  cmd[cmd_len] (ASCII command line)
 
-#### CMD_RSP (Dongle → Agent)
-Fields:
-- `corr_id` (uuid)
-- `status` (`ok` | `error` | `timeout`)
-- `exit_code` (int32, nullable)
-- `stdout` (string, may be chunked)
-- `stderr` (string, may be chunked)
+Response payload:
+  u8  action = 2 (CLI_RESPONSE)
+  u8  status (0=ok, 1=denied, 2=error, 3=timeout)
+  u8  flags (bit0 = truncated)
+  u8  reserved = 0
+  u8  corr_id[16]
+  u16 exit_code
+  u16 out_len
+  u8  out[out_len] (UTF-8/ASCII)
 
-Chunking (optional):
-- if output is large, dongle may send multiple `CMD_RSP_CHUNK` messages with:
-  - `corr_id`
-  - `seq` (uint16)
-  - `is_last` (bool)
-  - `stream` (`stdout`|`stderr`)
-  - `data` (bytes/base64)
-
+#### UART CLI telemetry (REMP type 5)
+Telemetry payload (big-endian):
+  u8  action = 1 (CLI_TELEMETRY)
+  u8  source = 0 (uart)
+  u8  flags (bit0 = truncated, bit1 = error)
+  u8  reserved = 0
+  u8  corr_id[16]
+  u16 exit_code
+  u16 cmd_len
+  u8  cmd[cmd_len]
+  u16 out_len
+  u8  out[out_len]
 ### 19.2 Pairing messages (REMP)
 - `PAIRING_MODE_START`
 - `PAIRING_SUBMIT`
@@ -824,7 +862,7 @@ These must include:
 ## 20. Key management (required)
 
 ### 20.1 What is encrypted at rest
-- `dongle_tokens.token_ciphertext` (AES‑256‑GCM)
+- `dongle_tokens.token_ciphertext` (AESâ€‘256â€‘GCM)
 - (optional) `agent_token` if stored server-side (recommended: store only hashed token)
 
 ### 20.2 Key storage (v1)
@@ -834,7 +872,7 @@ These must include:
 - Environment file stored at:
   - `/etc/obd2-dashboard.env` with permissions `0600`, owned by root.
 
-### 20.3 Envelope format (AES‑GCM)
+### 20.3 Envelope format (AESâ€‘GCM)
 Store per record:
 - `key_version` (e.g., 1)
 - `nonce` (12 bytes)
@@ -959,7 +997,20 @@ Constraints:
 Indexes:
 - index(`dongle_id`, `created_at`)
 
-### 21.10 audit_logs
+### 21.10 cli_telemetry
+- `id` uuid pk
+- `dongle_id` fk
+- `owner_user_id` fk nullable
+- `source` enum (`uart`, `remote`)
+- `command` text
+- `output` text
+- `truncated` bool
+- `created_at`
+
+Indexes:
+- index(`dongle_id`, `created_at`)
+
+### 21.11 audit_logs
 - `id` uuid pk
 - `actor_user_id` fk nullable
 - `action` string enum-like
@@ -970,7 +1021,7 @@ Indexes:
 - `details` jsonb
 - `created_at`
 
-### 21.11 email_verification_tokens (required)
+### 21.12 email_verification_tokens (required)
 Store hashed tokens only.
 - `id` uuid pk
 - `user_id` fk
@@ -978,7 +1029,7 @@ Store hashed tokens only.
 - `expires_at`
 - `created_at`
 
-### 21.12 password_reset_tokens (required)
+### 21.13 password_reset_tokens (required)
 Store hashed tokens only.
 - `id` uuid pk
 - `user_id` fk
@@ -987,7 +1038,7 @@ Store hashed tokens only.
 - `created_at`
 - `used_at` nullable
 
-### 21.13 email_outbox (optional v1.1)
+### 21.14 email_outbox (optional v1.1)
 - `id` uuid pk
 - `to_email`
 - `template`
@@ -1015,7 +1066,7 @@ Key threats and mitigations:
    - timeouts enforced
    - audit all commands
 4. **Dongle theft / token exfiltration**
-   - encrypted at rest (AES‑GCM)
+   - encrypted at rest (AESâ€‘GCM)
    - least-privilege on VPS secrets (`/etc/obd2-dashboard.env`, 0600)
 5. **Agent impersonation**
    - agent registration token
@@ -1123,3 +1174,4 @@ This v0.7 specification defines a **production-grade**, **secure**, and **determ
 - Separates control plane vs data plane
 - Relays CAN frames via VPS in v1 with reliable buffering
 - Defines explicit protocols, APIs, streaming, key management, and ops practices
+
