@@ -114,6 +114,7 @@ export const GroupsPage = () => {
                 onChange={(e) => setCreatePayload((prev) => ({ ...prev, a: e.target.value }))}
                 fullWidth
                 required
+                data-testid="group-dongle-a"
               >
                 {ownedDongles.map((dongle) => (
                   <MenuItem key={dongle.id} value={dongle.id}>
@@ -130,6 +131,7 @@ export const GroupsPage = () => {
                 onChange={(e) => setCreatePayload((prev) => ({ ...prev, b: e.target.value }))}
                 fullWidth
                 required
+                data-testid="group-dongle-b"
               >
                 {ownedDongles.map((dongle) => (
                   <MenuItem key={dongle.id} value={dongle.id}>
@@ -139,7 +141,7 @@ export const GroupsPage = () => {
               </TextField>
             </Grid>
           </Grid>
-          <PrimaryButton type="submit" disabled={creating}>
+          <PrimaryButton type="submit" disabled={creating} data-testid="group-create-submit">
             {creating ? "Creating..." : "Create group"}
           </PrimaryButton>
         </Stack>
@@ -150,7 +152,7 @@ export const GroupsPage = () => {
       ) : groups.length === 0 ? (
         <Alert severity="info">No groups created yet.</Alert>
       ) : (
-        <Grid container spacing={2}>
+        <Grid container spacing={2} data-testid="groups-list">
           {groups.map((group) => {
             const backlogA = group.buffered_frames_a_to_b ?? 0;
             const backlogB = group.buffered_frames_b_to_a ?? 0;
@@ -159,7 +161,11 @@ export const GroupsPage = () => {
               <Grid key={group.id} item xs={12} md={6}>
                 <InfoCard title={`Group ${group.id.slice(0, 8)}`}>
                   <Stack spacing={1}>
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                    >
                       <Typography variant="body2">Mode:</Typography>
                       <StatusChip label={group.mode} tone={modeTone(group.mode) as any} />
                       {degraded ? (
@@ -178,12 +184,19 @@ export const GroupsPage = () => {
                     <Typography variant="body2" color="text.secondary">
                       Buffer A→B: {backlogA} | Buffer B→A: {backlogB}
                     </Typography>
-                    <Stack direction="row" spacing={1} pt={1} flexWrap="wrap">
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      pt={1}
+                      flexWrap="wrap"
+                      sx={{ alignItems: { xs: "stretch", sm: "center" } }}
+                    >
                       <Button
                         variant="contained"
                         size="small"
                         onClick={() => handleActivate(group.id, "activate")}
                         disabled={group.mode === "ACTIVE"}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
                       >
                         Activate
                       </Button>
@@ -192,6 +205,7 @@ export const GroupsPage = () => {
                         size="small"
                         onClick={() => handleActivate(group.id, "deactivate")}
                         disabled={group.mode === "INACTIVE"}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
                       >
                         Deactivate
                       </Button>
@@ -199,6 +213,7 @@ export const GroupsPage = () => {
                         variant="text"
                         size="small"
                         onClick={() => navigate(`/console?group=${group.id}`)}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
                       >
                         Open console
                       </Button>

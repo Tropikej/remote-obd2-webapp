@@ -229,7 +229,12 @@ export const DongleDetailPage = () => {
         <Typography variant="h4" gutterBottom>
           Dongle {dongle.device_id}
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          flexWrap="wrap"
+          sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+        >
           <StatusChip label={dongle.ownership_state} tone={ownershipTone as any} />
           <Typography color="text.secondary">
             Last seen: {formatDate(dongle.last_seen_at)} | LAN: {dongle.lan_ip ?? "?"}
@@ -250,8 +255,13 @@ export const DongleDetailPage = () => {
               {pairingMessage ? (
                 <Alert severity={pairingWarning ? "warning" : "info"}>{pairingMessage}</Alert>
               ) : null}
-              <Stack direction="row" spacing={1}>
-                <Button variant="contained" onClick={handleStartPairing}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <Button
+                  variant="contained"
+                  onClick={handleStartPairing}
+                  data-testid="pairing-start"
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                >
                   Start pairing mode
                 </Button>
                 <TextField
@@ -259,6 +269,7 @@ export const DongleDetailPage = () => {
                   value={pairingSessionId}
                   onChange={(e) => setPairingSessionId(e.target.value)}
                   fullWidth
+                  inputProps={{ "data-testid": "pairing-session-id" }}
                 />
               </Stack>
               {pairingExpiresAt ? (
@@ -266,16 +277,18 @@ export const DongleDetailPage = () => {
                   Expires at {pairingExpiresAt} {pairingCountdown ? `(${pairingCountdown})` : ""}
                 </Typography>
               ) : null}
-              <Stack direction="row" spacing={1}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <TextField
                   label="PIN"
                   value={pairingPin}
                   onChange={(e) => setPairingPin(e.target.value)}
-                  inputProps={{ maxLength: 12 }}
+                  inputProps={{ maxLength: 12, "data-testid": "pairing-pin" }}
                   fullWidth
                   required
                 />
-                <PrimaryButton type="submit">Submit PIN</PrimaryButton>
+                <PrimaryButton type="submit" sx={{ width: { xs: "100%", sm: "auto" } }}>
+                  Submit PIN
+                </PrimaryButton>
               </Stack>
             </Stack>
           </InfoCard>
@@ -385,7 +398,12 @@ export const DongleDetailPage = () => {
                 />
               </Grid>
             </Grid>
-            <Stack direction="row" spacing={2} flexWrap="wrap">
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              flexWrap="wrap"
+              sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+            >
               <FormControlLabel
                 control={
                   <Switch

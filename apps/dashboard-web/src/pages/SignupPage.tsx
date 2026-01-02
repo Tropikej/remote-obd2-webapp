@@ -49,7 +49,7 @@ export const SignupPage = () => {
         </Typography>
       }
     >
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} data-testid="signup-form">
         <Stack spacing={2}>
           {error ? <Alert severity="error">{error}</Alert> : null}
           <TextField
@@ -59,6 +59,8 @@ export const SignupPage = () => {
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
+            fullWidth
+            inputProps={{ "data-testid": "signup-email" }}
           />
           <TextField
             label="Password"
@@ -67,7 +69,8 @@ export const SignupPage = () => {
             onChange={(e) => setPassword(e.target.value)}
             required
             autoComplete="new-password"
-            inputProps={{ minLength: 8 }}
+            fullWidth
+            inputProps={{ minLength: 8, "data-testid": "signup-password" }}
           />
           <TextField
             label="Confirm password"
@@ -76,9 +79,10 @@ export const SignupPage = () => {
             onChange={(e) => setConfirm(e.target.value)}
             required
             autoComplete="new-password"
-            inputProps={{ minLength: 8 }}
+            fullWidth
+            inputProps={{ minLength: 8, "data-testid": "signup-confirm" }}
           />
-          <PrimaryButton type="submit" disabled={submitting}>
+          <PrimaryButton type="submit" disabled={submitting} data-testid="signup-submit">
             {submitting ? "Creating account..." : "Create account"}
           </PrimaryButton>
         </Stack>

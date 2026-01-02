@@ -1,0 +1,25 @@
+export const selectors = {
+  loginEmail: "login-email",
+  loginPassword: "login-password",
+  loginSubmit: "login-submit",
+  signupEmail: "signup-email",
+  signupPassword: "signup-password",
+  signupConfirm: "signup-confirm",
+  signupSubmit: "signup-submit",
+  navLogout: "nav-logout",
+  navLogin: "nav-login",
+  navSignup: "nav-signup",
+  navDongles: "nav-dongles",
+  navGroups: "nav-groups",
+  navConsole: "nav-console",
+  navAdmin: "nav-admin",
+  navMenu: "nav-menu",
+  groupDongleA: "group-dongle-a",
+  groupDongleB: "group-dongle-b",
+  groupCreateSubmit: "group-create-submit",
+  pairingStart: "pairing-start",
+  pairingSessionId: "pairing-session-id",
+  pairingPin: "pairing-pin",
+};
+
+export const dongleViewButton = (deviceId: string) => `dongle-view-${deviceId}`;

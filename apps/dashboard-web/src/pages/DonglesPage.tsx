@@ -44,11 +44,22 @@ export const DonglesPage = () => {
           View discovered dongles, ownership state, and jump into pairing or configuration.
         </Typography>
       </Box>
-      <Stack direction="row" spacing={2} flexWrap="wrap">
-        <Button variant="contained" onClick={load} disabled={loading}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} flexWrap="wrap">
+        <Button
+          variant="contained"
+          onClick={load}
+          disabled={loading}
+          data-testid="dongles-refresh"
+          sx={{ width: { xs: "100%", sm: "auto" } }}
+        >
           {loading ? "Refreshing..." : "Refresh"}
         </Button>
-        <Button variant="outlined" onClick={() => navigate("/groups")}>
+        <Button
+          variant="outlined"
+          onClick={() => navigate("/groups")}
+          data-testid="dongles-manage-groups"
+          sx={{ width: { xs: "100%", sm: "auto" } }}
+        >
           Manage Groups
         </Button>
       </Stack>
@@ -58,7 +69,7 @@ export const DonglesPage = () => {
       ) : dongles.length === 0 ? (
         <Alert severity="info">No dongles discovered yet.</Alert>
       ) : (
-        <Grid container spacing={2}>
+        <Grid container spacing={2} data-testid="dongles-list">
           {dongles.map((dongle) => {
             const online = isOnline(dongle.last_seen_at);
             return (
@@ -80,11 +91,19 @@ export const DonglesPage = () => {
                       Last seen:{" "}
                       {dongle.last_seen_at ? new Date(dongle.last_seen_at).toLocaleString() : "never"}
                     </Typography>
-                    <Stack direction="row" spacing={1} pt={1} flexWrap="wrap">
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      pt={1}
+                      flexWrap="wrap"
+                      sx={{ alignItems: { xs: "stretch", sm: "center" } }}
+                    >
                       <Button
                         variant="contained"
                         size="small"
                         onClick={() => navigate(`/dongles/${dongle.id}`)}
+                        data-testid={`dongle-view-${dongle.device_id}`}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
                       >
                         View
                       </Button>
@@ -92,6 +111,8 @@ export const DonglesPage = () => {
                         variant="text"
                         size="small"
                         onClick={() => navigate(`/console?dongle=${dongle.id}`)}
+                        data-testid={`dongle-console-${dongle.device_id}`}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
                       >
                         Console
                       </Button>

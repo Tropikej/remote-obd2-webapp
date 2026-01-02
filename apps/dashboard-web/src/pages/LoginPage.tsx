@@ -44,7 +44,7 @@ export const LoginPage = () => {
         </Typography>
       }
     >
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} data-testid="login-form">
         <Stack spacing={2}>
           {error ? <Alert severity="error">{error}</Alert> : null}
           <TextField
@@ -54,6 +54,8 @@ export const LoginPage = () => {
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
+            fullWidth
+            inputProps={{ "data-testid": "login-email" }}
           />
           <TextField
             label="Password"
@@ -62,9 +64,10 @@ export const LoginPage = () => {
             onChange={(e) => setPassword(e.target.value)}
             required
             autoComplete="current-password"
-            inputProps={{ minLength: 8 }}
+            fullWidth
+            inputProps={{ minLength: 8, "data-testid": "login-password" }}
           />
-          <PrimaryButton type="submit" disabled={submitting}>
+          <PrimaryButton type="submit" disabled={submitting} data-testid="login-submit">
             {submitting ? "Signing in..." : "Sign in"}
           </PrimaryButton>
         </Stack>

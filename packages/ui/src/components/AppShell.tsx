@@ -11,17 +11,19 @@ type AppShellProps = {
 
 export const AppShell = ({ title, subtitle, children, footer }: AppShellProps) => (
   <AppThemeProvider>
-    <Box sx={{ minHeight: "100vh", paddingY: 6 }}>
+    <Box sx={{ minHeight: "100vh", py: { xs: 4, md: 6 } }}>
       <Container maxWidth="sm">
-        <Stack spacing={3}>
-          <Paper elevation={2} sx={{ padding: 4 }}>
+        <Stack spacing={{ xs: 2.5, sm: 3 }}>
+          <Paper elevation={2} sx={{ p: { xs: 3, sm: 4 } }}>
             <Stack spacing={1.5}>
-              <Typography variant="h4">{title}</Typography>
+              <Typography variant="h4" sx={{ fontSize: { xs: "1.75rem", sm: "2rem" } }}>
+                {title}
+              </Typography>
               {subtitle ? (
                 <Typography color="text.secondary">{subtitle}</Typography>
               ) : null}
             </Stack>
-            <Box sx={{ marginTop: 3 }}>{children}</Box>
+            <Box sx={{ marginTop: { xs: 2.5, sm: 3 } }}>{children}</Box>
           </Paper>
           {footer ? <Box>{footer}</Box> : null}
         </Stack>

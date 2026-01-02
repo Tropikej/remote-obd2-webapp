@@ -3,8 +3,10 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   Divider,
+  FormControlLabel,
   Grid,
   MenuItem,
   Stack,
@@ -12,7 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import type { DongleSummary } from "@dashboard/shared";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, type CommandStatus, type GroupResponse } from "../api/client";
 import { useSse, type SseEvent } from "../hooks/useSse";
@@ -48,7 +50,11 @@ const EventRow = ({ event }: { event: SseEvent }) => {
   };
   return (
     <Stack spacing={0.5} sx={{ borderBottom: "1px solid rgba(255,255,255,0.06)", pb: 1, mb: 1 }}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+      >
         <StatusChip label={event.type} tone="neutral" />
         <Typography variant="caption" color="text.secondary">
           {new Date(event.receivedAt).toLocaleTimeString()}
@@ -77,8 +83,20 @@ export const ConsolePage = () => {
   const [groups, setGroups] = useState<GroupResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [command, setCommand] = useState({ name: "ifconfig", args: "", timeout: 5000 });
+  const [command, setCommand] = useState({ name: "remote", args: "status", timeout: 5000 });
+  const [allowDangerous, setAllowDangerous] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [canFrame, setCanFrame] = useState({
+    canId: "0x123",
+    dataHex: "",
+    isExtended: false,
+    intervalMs: 500,
+  });
+  const [canMessage, setCanMessage] = useState<string | null>(null);
+  const [canSending, setCanSending] = useState(false);
+  const canTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const canFrameRef = useRef(canFrame);
+  const targetIdRef = useRef(targetId);
   const [filters, setFilters] = useState({
     showRx: true,
     showTx: true,
@@ -86,6 +104,7 @@ export const ConsolePage = () => {
     showPresence: true,
     search: "",
   });
+  const isDevMode = import.meta.env.DEV;
 
   const streamUrl = useMemo(() => {
     if (!targetId) return null;
@@ -118,6 +137,18 @@ export const ConsolePage = () => {
     });
   }, [events, filters]);
 
+  const commandEvents = useMemo(
+    () => events.filter((evt): evt is SseEvent<CommandStatus> => evt.type === "command_status"),
+    [events]
+  );
+
+  const recentCanEvents = useMemo(() => {
+    return events
+      .filter((evt) => evt.type === "can_frame")
+      .slice(-40)
+      .reverse();
+  }, [events]);
+
   const load = async () => {
     setLoading(true);
     setError(null);
@@ -139,6 +170,28 @@ export const ConsolePage = () => {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    canFrameRef.current = canFrame;
+  }, [canFrame]);
+
+  useEffect(() => {
+    targetIdRef.current = targetId;
+    if (canTimerRef.current && targetType !== "dongle") {
+      clearInterval(canTimerRef.current);
+      canTimerRef.current = null;
+      setCanSending(false);
+    }
+  }, [targetId, targetType]);
+
+  useEffect(() => {
+    return () => {
+      if (canTimerRef.current) {
+        clearInterval(canTimerRef.current);
+        canTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -166,11 +219,57 @@ export const ConsolePage = () => {
         command: command.name,
         args,
         timeout_ms: command.timeout,
+        command_target: "dongle",
+        ...(allowDangerous && isDevMode ? { allow_dangerous: true } : {}),
       });
       setCommandMessage(`Command sent with id ${result.command_id} (${result.status}).`);
     } catch (err) {
       setCommandMessage(err instanceof ApiError ? err.message : "Failed to send command.");
     }
+  };
+
+  const sendCanOnce = async (frameOverride?: typeof canFrame) => {
+    const activeTargetId = targetIdRef.current;
+    if (targetType !== "dongle" || !activeTargetId) {
+      setCanMessage("Select a dongle to send CAN frames.");
+      return;
+    }
+    const payload = frameOverride ?? canFrameRef.current;
+    setCanMessage(null);
+    try {
+      await api.sendCanFrame(activeTargetId, {
+        can_id: payload.canId,
+        is_extended: payload.isExtended,
+        data_hex: payload.dataHex,
+      });
+      setCanMessage("CAN frame sent.");
+    } catch (err) {
+      setCanMessage(err instanceof ApiError ? err.message : "Failed to send CAN frame.");
+    }
+  };
+
+  const togglePeriodic = () => {
+    if (canTimerRef.current) {
+      clearInterval(canTimerRef.current);
+      canTimerRef.current = null;
+      setCanSending(false);
+      return;
+    }
+    if (targetType !== "dongle" || !targetIdRef.current) {
+      setCanMessage("Select a dongle to send CAN frames.");
+      return;
+    }
+    const interval = Math.max(50, Number(canFrameRef.current.intervalMs) || 0);
+    if (!interval) {
+      setCanMessage("Interval must be at least 50 ms.");
+      return;
+    }
+    setCanMessage(null);
+    setCanSending(true);
+    void sendCanOnce();
+    canTimerRef.current = setInterval(() => {
+      void sendCanOnce();
+    }, interval);
   };
 
   return (
@@ -310,72 +409,260 @@ export const ConsolePage = () => {
 
         {targetType === "dongle" ? (
           <Grid item xs={12} md={4}>
-            <InfoCard title="Command console">
-              <Stack spacing={2} component="form" onSubmit={handleSendCommand}>
-                <Typography variant="body2" color="text.secondary">
-                  Send a command to the selected dongle. Status updates stream back via SSE.
+            <Stack spacing={2}>
+              <InfoCard title="Command console">
+                <Stack spacing={2} component="form" onSubmit={handleSendCommand}>
+                  <Typography variant="body2" color="text.secondary">
+                    Run a safe dongle CLI command. Status updates stream back via SSE.
+                  </Typography>
+                  {commandMessage ? <Alert severity="info">{commandMessage}</Alert> : null}
+                  <TextField
+                    label="Command"
+                    value={command.name}
+                    onChange={(e) => setCommand((prev) => ({ ...prev, name: e.target.value }))}
+                    required
+                    fullWidth
+                  />
+                  <TextField
+                    label="Arguments"
+                    value={command.args}
+                    onChange={(e) => setCommand((prev) => ({ ...prev, args: e.target.value }))}
+                    helperText="Space-separated"
+                    fullWidth
+                  />
+                  <TextField
+                    label="Timeout (ms)"
+                    type="number"
+                    value={command.timeout}
+                    onChange={(e) =>
+                      setCommand((prev) => ({ ...prev, timeout: Number(e.target.value) || 0 }))
+                    }
+                    inputProps={{ min: 1000 }}
+                    fullWidth
+                  />
+                  {isDevMode ? (
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={allowDangerous}
+                          onChange={(e) => setAllowDangerous(e.target.checked)}
+                        />
+                      }
+                      label="Allow dangerous commands (dev only)"
+                    />
+                  ) : null}
+                  <PrimaryButton type="submit" disabled={!targetId}>
+                    Send command
+                  </PrimaryButton>
+                </Stack>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" gutterBottom>
+                  Command log
                 </Typography>
-                {commandMessage ? <Alert severity="info">{commandMessage}</Alert> : null}
-                <TextField
-                  label="Command"
-                  value={command.name}
-                  onChange={(e) => setCommand((prev) => ({ ...prev, name: e.target.value }))}
-                  required
-                />
-                <TextField
-                  label="Arguments"
-                  value={command.args}
-                  onChange={(e) => setCommand((prev) => ({ ...prev, args: e.target.value }))}
-                  helperText="Space-separated"
-                />
-                <TextField
-                  label="Timeout (ms)"
-                  type="number"
-                  value={command.timeout}
-                  onChange={(e) => setCommand((prev) => ({ ...prev, timeout: Number(e.target.value) || 0 }))}
-                  inputProps={{ min: 1000 }}
-                />
-                <PrimaryButton type="submit" disabled={!targetId}>
-                  Send command
-                </PrimaryButton>
-              </Stack>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle2" gutterBottom>
-                Latest command statuses
-              </Typography>
-              <Stack spacing={1}>
-                {events
-                  .filter((e): e is SseEvent<CommandStatus> => e.type === "command_status")
-                  .slice(-5)
-                  .reverse()
-                  .map((evt) => {
-                    const data = evt.data as CommandStatus;
-                    return (
-                      <Box
-                        key={`${evt.id}-${evt.receivedAt}`}
-                        sx={{ borderBottom: "1px solid rgba(255,255,255,0.06)", pb: 1 }}
+                <Box sx={{ maxHeight: 240, overflow: "auto" }}>
+                  {commandEvents.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No command activity yet.
+                    </Typography>
+                  ) : (
+                    commandEvents
+                      .slice(-10)
+                      .reverse()
+                      .map((evt) => {
+                        const data = evt.data as CommandStatus;
+                        return (
+                          <Box
+                            key={`${evt.id}-${evt.receivedAt}`}
+                            sx={{ borderBottom: "1px solid rgba(255,255,255,0.06)", pb: 1, mb: 1 }}
+                          >
+                            <Stack
+                              direction={{ xs: "column", sm: "row" }}
+                              spacing={1}
+                              flexWrap="wrap"
+                              sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                            >
+                              <Typography variant="body2">
+                                {data.command_id} – {data.status}
+                              </Typography>
+                              {data.command_target ? (
+                                <Chip label={`target:${data.command_target}`} size="small" />
+                              ) : null}
+                              {data.command_source ? (
+                                <Chip label={`source:${data.command_source}`} size="small" />
+                              ) : null}
+                              {data.truncated ? (
+                                <Chip label="truncated" size="small" color="warning" />
+                              ) : null}
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary">
+                              Started: {formatDate(data.started_at)} | Done:{" "}
+                              {formatDate(data.completed_at)}
+                            </Typography>
+                            {data.stdout ? (
+                              <Typography
+                                variant="caption"
+                                display="block"
+                                sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap" }}
+                              >
+                                stdout: {data.stdout}
+                              </Typography>
+                            ) : null}
+                            {data.stderr ? (
+                              <Typography
+                                variant="caption"
+                                display="block"
+                                color="error"
+                                sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap" }}
+                              >
+                                stderr: {data.stderr}
+                              </Typography>
+                            ) : null}
+                          </Box>
+                        );
+                      })
+                  )}
+                </Box>
+              </InfoCard>
+              <InfoCard title="CAN console">
+                <Stack spacing={2}>
+                  <Typography variant="body2" color="text.secondary">
+                    Send a CAN frame to the selected dongle and watch live traffic.
+                  </Typography>
+                  {canMessage ? <Alert severity="info">{canMessage}</Alert> : null}
+                  <Stack spacing={2} component="form" onSubmit={(e) => { e.preventDefault(); void sendCanOnce(); }}>
+                    <TextField
+                      label="CAN ID"
+                      value={canFrame.canId}
+                      onChange={(e) =>
+                        setCanFrame((prev) => ({ ...prev, canId: e.target.value }))
+                      }
+                      required
+                      fullWidth
+                    />
+                    <TextField
+                      label="Data (hex)"
+                      value={canFrame.dataHex}
+                      onChange={(e) =>
+                        setCanFrame((prev) => ({ ...prev, dataHex: e.target.value }))
+                      }
+                      helperText="Up to 8 bytes (16 hex chars)"
+                      fullWidth
+                    />
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={2}
+                      sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                    >
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={canFrame.isExtended}
+                            onChange={(e) =>
+                              setCanFrame((prev) => ({
+                                ...prev,
+                                isExtended: e.target.checked,
+                              }))
+                            }
+                          />
+                        }
+                        label="Extended ID"
+                      />
+                      <TextField
+                        label="Interval (ms)"
+                        type="number"
+                        value={canFrame.intervalMs}
+                        onChange={(e) =>
+                          setCanFrame((prev) => ({
+                            ...prev,
+                            intervalMs: Number(e.target.value) || 0,
+                          }))
+                        }
+                        inputProps={{ min: 50 }}
+                        fullWidth
+                        sx={{ maxWidth: { xs: "100%", sm: 160 } }}
+                      />
+                    </Stack>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                      <PrimaryButton
+                        type="submit"
+                        disabled={!targetId}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
                       >
-                        <Typography variant="body2">
-                          {data.command_id} — {data.status}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Started: {formatDate(data.started_at)} | Done: {formatDate(data.completed_at)}
-                        </Typography>
-                        {data.stdout ? (
-                          <Typography variant="caption" display="block">
-                            stdout: {data.stdout}
-                          </Typography>
-                        ) : null}
-                        {data.stderr ? (
-                          <Typography variant="caption" display="block">
-                            stderr: {data.stderr}
-                          </Typography>
-                        ) : null}
-                      </Box>
-                    );
-                  })}
-              </Stack>
-            </InfoCard>
+                        Send once
+                      </PrimaryButton>
+                      <Button
+                        variant="outlined"
+                        onClick={togglePeriodic}
+                        disabled={!targetId}
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
+                      >
+                        {canSending ? "Stop periodic" : "Start periodic"}
+                      </Button>
+                    </Stack>
+                  </Stack>
+                  <Divider />
+                  <Typography variant="subtitle2">Live CAN frames</Typography>
+                  <Box sx={{ maxHeight: 220, overflow: "auto" }}>
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: { xs: "60px 40px 30px 1fr", sm: "80px 60px 40px 1fr" },
+                        columnGap: 1,
+                        pb: 1,
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        ID
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Dir
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        DLC
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Data
+                      </Typography>
+                    </Box>
+                    {recentCanEvents.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No CAN frames yet.
+                      </Typography>
+                    ) : (
+                      recentCanEvents.map((evt) => {
+                        const data = evt.data as Record<string, any>;
+                        return (
+                          <Box
+                            key={`${evt.id}-${evt.receivedAt}`}
+                            sx={{
+                              display: "grid",
+                              gridTemplateColumns: { xs: "60px 40px 30px 1fr", sm: "80px 60px 40px 1fr" },
+                              columnGap: 1,
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              py: 0.5,
+                            }}
+                          >
+                            <Typography variant="caption">
+                              {data.id ?? data.can_id ?? "?"}
+                            </Typography>
+                            <Typography variant="caption">
+                              {(data.direction ?? "?").toString().toUpperCase()}
+                            </Typography>
+                            <Typography variant="caption">{data.dlc ?? "?"}</Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ fontFamily: "monospace", wordBreak: "break-all" }}
+                            >
+                              {data.data_hex ?? data.data ?? "?"}
+                            </Typography>
+                          </Box>
+                        );
+                      })
+                    )}
+                  </Box>
+                </Stack>
+              </InfoCard>
+            </Stack>
           </Grid>
         ) : null}
       </Grid>

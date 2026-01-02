@@ -114,10 +114,10 @@ export const AdminPage = () => {
                 {users.map((u) => (
                   <Stack
                     key={u.id}
-                    direction="row"
+                    direction={{ xs: "column", sm: "row" }}
                     spacing={2}
-                    alignItems="center"
                     justifyContent="space-between"
+                    sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
                   >
                     <Stack spacing={0.5}>
                       <Typography variant="body2">{u.email}</Typography>
@@ -125,7 +125,11 @@ export const AdminPage = () => {
                         Role: {u.role}
                       </Typography>
                     </Stack>
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                    >
                       <StatusChip
                         label={u.status}
                         tone={u.status === "active" ? "success" : "warning"}
@@ -157,10 +161,10 @@ export const AdminPage = () => {
                 {dongles.map((dongle) => (
                   <Stack
                     key={dongle.id}
-                    direction="row"
+                    direction={{ xs: "column", sm: "row" }}
                     spacing={2}
-                    alignItems="center"
                     justifyContent="space-between"
+                    sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
                   >
                     <Stack spacing={0.5}>
                       <Typography variant="body2">{dongle.device_id}</Typography>

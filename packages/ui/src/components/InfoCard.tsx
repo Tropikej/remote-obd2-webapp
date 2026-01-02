@@ -7,9 +7,11 @@ type InfoCardProps = {
 };
 
 export const InfoCard = ({ title, children }: InfoCardProps) => (
-  <Paper variant="outlined" sx={{ padding: 2 }}>
-    <Stack spacing={1}>
-      <Typography variant="h6">{title}</Typography>
+  <Paper variant="outlined" sx={{ p: { xs: 2, sm: 2.5 } }}>
+    <Stack spacing={{ xs: 1, sm: 1.5 }}>
+      <Typography variant="h6" sx={{ fontSize: { xs: "1.1rem", sm: "1.25rem" } }}>
+        {title}
+      </Typography>
       <Box>{children}</Box>
     </Stack>
   </Paper>
