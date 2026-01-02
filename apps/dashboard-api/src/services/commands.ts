@@ -322,6 +322,8 @@ export const enqueueCommand = async (
       command: allowlist.command,
       args,
       timeout_ms: timeoutMs,
+      lan_ip: dongle.lanIp ?? undefined,
+      udp_port: dongle.udpPort ?? undefined,
       command_target: commandTarget,
       command_source: commandSource,
       allow_dangerous: allowDangerous,

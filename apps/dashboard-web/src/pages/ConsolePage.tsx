@@ -137,7 +137,6 @@ export const ConsolePage = () => {
     intervalMs: 500,
   });
   const [eventsOpen, setEventsOpen] = useState(true);
-  const [canMessage, setCanMessage] = useState<string | null>(null);
   const [canSending, setCanSending] = useState(false);
   const canTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canFrameRef = useRef(canFrame);
@@ -339,20 +338,16 @@ export const ConsolePage = () => {
   const sendCanOnce = async (frameOverride?: typeof canFrame) => {
     const activeTargetId = targetIdRef.current;
     if (targetType !== "dongle" || !activeTargetId) {
-      setCanMessage("Select a dongle to send CAN frames.");
       return;
     }
     const payload = frameOverride ?? canFrameRef.current;
-    setCanMessage(null);
     try {
       await api.sendCanFrame(activeTargetId, {
         can_id: payload.canId,
         is_extended: payload.isExtended,
         data_hex: payload.dataHex,
       });
-      setCanMessage("CAN frame sent.");
     } catch (err) {
-      setCanMessage(err instanceof ApiError ? err.message : "Failed to send CAN frame.");
     }
   };
 
@@ -364,15 +359,12 @@ export const ConsolePage = () => {
       return;
     }
     if (targetType !== "dongle" || !targetIdRef.current) {
-      setCanMessage("Select a dongle to send CAN frames.");
       return;
     }
     const interval = Math.max(50, Number(canFrameRef.current.intervalMs) || 0);
     if (!interval) {
-      setCanMessage("Interval must be at least 50 ms.");
       return;
     }
-    setCanMessage(null);
     setCanSending(true);
     void sendCanOnce();
     canTimerRef.current = setInterval(() => {
@@ -592,7 +584,6 @@ export const ConsolePage = () => {
                   <Typography variant="body2" color="text.secondary">
                     Send a CAN frame to the selected dongle and monitor live traffic.
                   </Typography>
-                  {canMessage ? <Alert severity="info">{canMessage}</Alert> : null}
                   <Stack
                     spacing={2}
                     component="form"

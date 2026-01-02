@@ -16,6 +16,7 @@ export const sendDongleCliCommand = async (opts: {
   target: RempTarget;
   deviceId: string;
   token: string;
+  tokenBytes?: Buffer;
   command: string;
   allowDangerous?: boolean;
   timeoutMs?: number;
@@ -29,7 +30,7 @@ export const sendDongleCliCommand = async (opts: {
   const header = encodeRempHeader({
     type: REMP_TYPE_CLI,
     deviceId: deviceIdToBytes(opts.deviceId),
-    token: decodeDongleToken(opts.token),
+    token: opts.tokenBytes ?? decodeDongleToken(opts.token),
   });
   const message = Buffer.concat([header, payload]);
 

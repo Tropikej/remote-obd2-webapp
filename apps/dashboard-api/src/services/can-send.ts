@@ -104,6 +104,8 @@ export const sendCanFrame = async (
     await sendControlRequest(dongle.lastSeenAgentId, {
       type: "can_frame_send",
       dongle_id: dongleId,
+      lan_ip: dongle.lanIp ?? undefined,
+      udp_port: dongle.udpPort ?? undefined,
       frame: {
         can_id: canIdHex,
         is_extended: isExtended,

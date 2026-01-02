@@ -17,7 +17,7 @@ After this change, the dashboard can send CAN frames to a paired dongle, display
 - [x] (2025-12-29 20:00Z) Implement dongle CLI command execution via the agent and show responses in the dashboard console.
 - [x] (2025-12-29 20:00Z) Update the console UI with a command input/log panel and a CAN send/traffic panel.
 - [x] (2025-12-29 20:30Z) Align dongle token encoding so pairing, CAN, and CLI all use the same 32-byte token on the wire (base64 at API boundaries, raw bytes in REMP).
-- [ ] (2025-12-29 20:00Z) Validate CAN TX/RX and remote CLI over a paired dongle.
+- [x] (2026-01-02 22:00Z) Validate CAN TX/RX and remote CLI over a paired dongle.
 
 ## Surprises & Discoveries
 
@@ -65,12 +65,17 @@ After this change, the dashboard can send CAN frames to a paired dongle, display
 
 ## Outcomes & Retrospective
 
-- Implemented REMP transport, CAN relay, CAN config, and dongle CLI support across agent, API, and UI; validation still pending.
+- Implemented REMP transport, CAN relay, CAN config, and dongle CLI support across agent, API, and UI; validation completed with live dongle.
 - Tests have not been run yet.
 
 ## Validation Status
 
 - Tests have not been run yet.
+- Manual validation completed (2026-01-02):
+  - Confirmed bridge-agent data-plane WS connected (`[bridge-agent] data-plane connected to ws://127.0.0.1:3000/ws/data`).
+  - Confirmed CAN TX sends via REMP (`remp can tx` logs) and dongle responses observed.
+  - Confirmed CLI REMP response matched (`remp matched type=4`).
+  - Console UI shows CAN frames and CLI output after re-pairing and data-plane reconnection.
 - Detailed tests to run and what they validate:
   - Run `npm run dev:api` and `npm run dev:desktop --workspace apps/bridge-agent` to validate the feature "all new REMP API + agent paths compile and start without runtime errors".
   - Pair a dongle and verify CAN RX traffic appears in the console stream to validate the feature "dongle CAN frames are forwarded to the API and visible in the dashboard".
@@ -170,3 +175,5 @@ In `dashboard/apps/dashboard-api/src/routes/dongles.ts`, add a CAN send endpoint
 Plan change note: 2025-12-29 - Updated the plan to route all CAN frames through the server, add console UI requirements, and add command target/source + capped log storage with a dangerous-command toggle.
 Plan change note: 2025-12-29 - Clarified that data-plane CAN frames must not be sampled or filtered in the agent or API.
 Plan change note: 2025-12-29 - Added token encoding alignment steps and validation to prevent REMP auth failures after pairing.
+Plan change note: 2026-01-02 - Added BRIDGE_AGENT_DEBUG_* and DASHBOARD_DEBUG_* logging flags for prototyping only; keep disabled or remove before production.
+Plan change note: 2026-01-02 - Manual validation completed with live dongle (CAN TX/RX + CLI output + data-plane WS connectivity).

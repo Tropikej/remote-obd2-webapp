@@ -13,6 +13,7 @@ import {
   encodeCanFrame,
   encodeRempHeader,
   REMP_TYPE_CAN,
+  MAX_TOKEN_LEN,
 } from "@dashboard/remp";
 import {
   AgentRegistration,
@@ -94,6 +95,8 @@ type DeviceSnapshot = {
   report: DeviceReport;
   signature: string;
   lastSeenAt: number;
+  sourceIp?: string;
+  sourcePort?: number;
   ownershipState?: string | null;
   ownerUserId?: string | null;
   cloudId?: string | null;
@@ -129,6 +132,8 @@ type CanFrameSendMessage = {
   type: "can_frame_send";
   request_id: string;
   dongle_id: string;
+  lan_ip?: string;
+  udp_port?: number;
   frame: {
     can_id: string;
     is_extended: boolean;
@@ -225,6 +230,9 @@ const parseNumber = (value: number | undefined, fallback: number) => {
   return value;
 };
 
+const isValidPort = (value: number | undefined) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 65535;
+
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
 
 const parseCanId = (value: string) => {
@@ -267,8 +275,9 @@ const buildDeviceReport = (event: DiscoveryEvent): DeviceReport | null => {
   if (event.payload.fwBuild) {
     report.fw_build = event.payload.fwBuild;
   }
-  if (event.payload.udpPort !== undefined) {
-    report.udp_port = event.payload.udpPort;
+  const udpPort = event.payload.udpPort ?? event.sourcePort;
+  if (isValidPort(udpPort)) {
+    report.udp_port = udpPort;
   }
   if (event.payload.capabilities !== undefined) {
     report.capabilities = event.payload.capabilities;
@@ -339,6 +348,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
   const deviceInterfaces = new Map<string, Set<string>>();
   const cloudIdToDeviceId = new Map<string, string>();
   const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+  const tokenEncodingCache = new Map<string, "raw" | "ascii">();
   let dirty = false;
   let reporting = false;
 
@@ -351,19 +361,53 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     return devices.get(deviceId) ?? null;
   };
 
-  const findTargetForDongle = (
+  const resolveTargetsForDongle = (
     dongleId: string,
     hintedIp?: string,
     hintedPort?: number
-  ): RempTarget | null => {
+  ) => {
     const snapshot = getSnapshotForDongle(dongleId);
-    const host = hintedIp || snapshot?.report.lan_ip;
-    const port = hintedPort || snapshot?.report.udp_port;
-    if (!host || !port) {
-      return null;
-    }
-    return { host, port };
+    const primaryHost = hintedIp ?? snapshot?.report.lan_ip ?? snapshot?.sourceIp;
+    const primaryPort = isValidPort(hintedPort)
+      ? hintedPort
+      : isValidPort(snapshot?.report.udp_port)
+        ? snapshot?.report.udp_port
+        : isValidPort(snapshot?.sourcePort)
+          ? snapshot?.sourcePort
+          : undefined;
+    const primary =
+      primaryHost && primaryPort ? { host: primaryHost, port: primaryPort } : null;
+
+    const fallbackHost = snapshot?.sourceIp;
+    const fallbackPort = isValidPort(snapshot?.sourcePort) ? snapshot?.sourcePort : undefined;
+    const fallback =
+      fallbackHost && fallbackPort && (!primary || primary.host !== fallbackHost || primary.port !== fallbackPort)
+        ? { host: fallbackHost, port: fallbackPort }
+        : null;
+
+    return { snapshot, primary, fallback };
   };
+
+  const selectTarget = (targets: { primary: RempTarget | null; fallback: RempTarget | null }) =>
+    targets.primary ?? targets.fallback;
+
+  const updateSnapshotTarget = (snapshot: DeviceSnapshot, target: RempTarget) => {
+    const nextReport: DeviceReport = {
+      ...snapshot.report,
+      lan_ip: target.host,
+      udp_port: target.port,
+    };
+    const nextSignature = JSON.stringify(nextReport);
+    if (nextSignature !== snapshot.signature) {
+      snapshot.report = nextReport;
+      snapshot.signature = nextSignature;
+      dirty = true;
+    }
+  };
+
+  const isRempTimeout = (error: unknown) =>
+    typeof (error as Error)?.message === "string" &&
+    /timed out/i.test((error as Error).message);
 
   const discoveryPort = parseNumber(
     options.discoveryPort ?? envDiscoveryPort,
@@ -407,6 +451,22 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     const token = response.token;
     tokenCache.set(dongleId, { token, expiresAt: now + tokenTtlMs });
     return token;
+  };
+
+  const getTokenBytes = (dongleId: string, token: string) => {
+    const encoding = tokenEncodingCache.get(dongleId) ?? "raw";
+    if (encoding === "ascii") {
+      const bytes = Buffer.from(token, "utf8");
+      if (bytes.length > MAX_TOKEN_LEN) {
+        throw new Error("Dongle token exceeds maximum length.");
+      }
+      return { bytes, encoding };
+    }
+    return { bytes: decodeDongleToken(token), encoding };
+  };
+
+  const setTokenEncoding = (dongleId: string, encoding: "raw" | "ascii") => {
+    tokenEncodingCache.set(dongleId, encoding);
   };
 
   const buildDiscoveryStatus = (): DiscoveryDeviceStatus[] =>
@@ -480,22 +540,28 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       }
       if (isCanConfigApplyMessage(message)) {
         try {
-          const target = findTargetForDongle(message.dongle_id);
-          if (!target) {
-            throw new Error("Missing LAN IP or UDP port for dongle.");
-          }
-          const snapshot = getSnapshotForDongle(message.dongle_id);
+          const targets = resolveTargetsForDongle(message.dongle_id);
+          const snapshot = targets.snapshot;
+          const target = selectTarget(targets);
           if (!snapshot) {
             throw new Error("Dongle not found in discovery cache.");
           }
+          if (!target) {
+            throw new Error("Missing LAN IP or UDP port for dongle.");
+          }
           const token = await getDongleToken(message.dongle_id);
+          const tokenInfo = getTokenBytes(message.dongle_id, token);
           const { effective } = await applyCanConfigToDongle(
             rempTransport,
             target,
             snapshot.report.device_id,
             token,
+            tokenInfo.bytes,
             message.config
           );
+          if (target === targets.fallback) {
+            updateSnapshotTarget(snapshot, target);
+          }
           control?.send({
             type: "can_config_ack",
             request_id: message.request_id,
@@ -514,23 +580,27 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       }
       if (isPairingModeStartMessage(message)) {
         try {
-          const target = findTargetForDongle(
+          const targets = resolveTargetsForDongle(
             message.dongle_id,
             message.lan_ip,
             message.udp_port
           );
-          if (!target) {
-            throw new Error("Missing LAN IP or UDP port for dongle.");
-          }
-          const snapshot = getSnapshotForDongle(message.dongle_id);
+          const snapshot = targets.snapshot;
+          const target = selectTarget(targets);
           if (!snapshot) {
             throw new Error("Dongle not found in discovery cache.");
+          }
+          if (!target) {
+            throw new Error("Missing LAN IP or UDP port for dongle.");
           }
           const result = await startPairingMode(
             rempTransport,
             target,
             snapshot.report.device_id
           );
+          if (target === targets.fallback) {
+            updateSnapshotTarget(snapshot, target);
+          }
           control?.send({
             type: "pairing_mode_started",
             request_id: message.request_id,
@@ -551,17 +621,18 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       }
       if (isPairingSubmitMessage(message)) {
         try {
-          const target = findTargetForDongle(
+          const targets = resolveTargetsForDongle(
             message.dongle_id,
             message.lan_ip,
             message.udp_port
           );
-          if (!target) {
-            throw new Error("Missing LAN IP or UDP port for dongle.");
-          }
-          const snapshot = getSnapshotForDongle(message.dongle_id);
+          const snapshot = targets.snapshot;
+          const target = selectTarget(targets);
           if (!snapshot) {
             throw new Error("Dongle not found in discovery cache.");
+          }
+          if (!target) {
+            throw new Error("Missing LAN IP or UDP port for dongle.");
           }
           const result = await submitPairing(
             rempTransport,
@@ -571,6 +642,9 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
             typeof message.pairing_nonce === "string" ? message.pairing_nonce : undefined,
             message.dongle_token
           );
+          if (target === targets.fallback) {
+            updateSnapshotTarget(snapshot, target);
+          }
           control?.send({
             type: "pairing_result",
             request_id: message.request_id,
@@ -589,7 +663,10 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       }
       if (isCanFrameSendMessage(message)) {
         try {
-          await sendCanFrameToDongle(message.dongle_id, message.frame);
+          await sendCanFrameToDongle(message.dongle_id, message.frame, {
+            lan_ip: message.lan_ip,
+            udp_port: message.udp_port,
+          });
           control?.send({
             type: "can_frame_ack",
             request_id: message.request_id,
@@ -624,13 +701,15 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
 
   const sendCanFrameToDongle = async (
     dongleId: string,
-    frame: { can_id: string; is_extended?: boolean; data_hex: string }
+    frame: { can_id: string; is_extended?: boolean; data_hex: string },
+    hints?: { lan_ip?: string; udp_port?: number }
   ) => {
-    const snapshot = getSnapshotForDongle(dongleId);
+    const targets = resolveTargetsForDongle(dongleId, hints?.lan_ip, hints?.udp_port);
+    const snapshot = targets.snapshot;
     if (!snapshot) {
       throw new Error("Dongle not found in discovery cache.");
     }
-    const target = findTargetForDongle(dongleId);
+    const target = selectTarget(targets);
     if (!target) {
       throw new Error("Missing LAN IP or UDP port for dongle.");
     }
@@ -639,6 +718,12 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     const isExtended =
       typeof frame.is_extended === "boolean" ? frame.is_extended : canId > 0x7ff;
     const token = await getDongleToken(dongleId);
+    const tokenInfo = getTokenBytes(dongleId, token);
+    if (process.env.BRIDGE_AGENT_DEBUG_REMP === "1") {
+      console.log(
+        `[bridge-agent] remp can tx target=${target.host}:${target.port} device=${snapshot.report.device_id} token_len=${tokenInfo.bytes.length}`
+      );
+    }
     const payload = encodeCanFrame({
       canId,
       isExtended,
@@ -647,9 +732,12 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     const header = encodeRempHeader({
       type: REMP_TYPE_CAN,
       deviceId: deviceIdToBytes(snapshot.report.device_id),
-      token: decodeDongleToken(token),
+      token: tokenInfo.bytes,
     });
     await rempTransport.send(target, Buffer.concat([header, payload]));
+    if (target === targets.fallback) {
+      updateSnapshotTarget(snapshot, target);
+    }
   };
 
   const handleDataPlaneFrame = async (message: { type: string } & Record<string, unknown>) => {
@@ -686,6 +774,16 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     const snapshot = devices.get(event.deviceId);
     const dongleId = snapshot?.cloudId;
     if (!dongleId || !dataPlane || !dataPlane.isOpen()) {
+      if (process.env.BRIDGE_AGENT_DEBUG_DATA_PLANE === "1") {
+        const reason = !dongleId
+          ? "missing cloudId"
+          : !dataPlane
+            ? "dataPlane unavailable"
+            : "dataPlane closed";
+        console.log(
+          `[bridge-agent] data-plane drop can_frame device=${event.deviceId} reason=${reason}`
+        );
+      }
       return;
     }
     const frame: CanRelayFrame = {
@@ -716,7 +814,13 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     const commandSource = message.command_source ?? "web";
     const commandTarget = "dongle";
     const startedAt = new Date().toISOString();
-    const snapshot = getSnapshotForDongle(message.dongle_id);
+    const targets = resolveTargetsForDongle(
+      message.dongle_id,
+      message.lan_ip,
+      message.udp_port
+    );
+    const snapshot = targets.snapshot;
+    const target = selectTarget(targets);
     if (!snapshot) {
       sendCommandResponse({
         type: "command_response",
@@ -731,7 +835,6 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
       });
       return;
     }
-    const target = findTargetForDongle(message.dongle_id);
     if (!target) {
       sendCommandResponse({
         type: "command_response",
@@ -750,15 +853,71 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     const fullCommand = [message.command, ...(message.args || [])].join(" ").trim();
     try {
       const token = await getDongleToken(message.dongle_id);
-      const response = await sendDongleCliCommand({
-        transport: rempTransport,
-        target,
-        deviceId: snapshot.report.device_id,
-        token,
-        command: fullCommand,
-        allowDangerous: message.allow_dangerous,
-        timeoutMs: message.timeout_ms,
-      });
+      const primaryTokenInfo = getTokenBytes(message.dongle_id, token);
+      const asciiToken =
+        primaryTokenInfo.encoding === "ascii"
+          ? primaryTokenInfo
+          : { bytes: Buffer.from(token, "utf8"), encoding: "ascii" as const };
+      const tokenVariants =
+        asciiToken.bytes.length <= MAX_TOKEN_LEN
+          ? primaryTokenInfo.encoding === "ascii"
+            ? [asciiToken, { bytes: decodeDongleToken(token), encoding: "raw" as const }]
+            : [primaryTokenInfo, asciiToken]
+          : [primaryTokenInfo];
+
+      const targetsToTry: RempTarget[] = [target];
+      if (targets.fallback && (targets.fallback.host !== target.host || targets.fallback.port !== target.port)) {
+        targetsToTry.push(targets.fallback);
+      }
+
+      let response: Awaited<ReturnType<typeof sendDongleCliCommand>> | null = null;
+      let usedTarget = target;
+      let usedEncoding = primaryTokenInfo.encoding;
+      let lastTimeout: Error | null = null;
+
+      for (const candidate of targetsToTry) {
+        for (const tokenVariant of tokenVariants) {
+          try {
+            if (process.env.BRIDGE_AGENT_DEBUG_REMP === "1") {
+              console.log(
+                `[bridge-agent] remp cli tx target=${candidate.host}:${candidate.port} device=${snapshot.report.device_id} token_len=${tokenVariant.bytes.length} encoding=${tokenVariant.encoding}`
+              );
+            }
+            response = await sendDongleCliCommand({
+              transport: rempTransport,
+              target: candidate,
+              deviceId: snapshot.report.device_id,
+              token,
+              tokenBytes: tokenVariant.bytes,
+              command: fullCommand,
+              allowDangerous: message.allow_dangerous,
+              timeoutMs: message.timeout_ms,
+            });
+            usedTarget = candidate;
+            usedEncoding = tokenVariant.encoding;
+            break;
+          } catch (error) {
+            if (isRempTimeout(error)) {
+              lastTimeout = error as Error;
+              continue;
+            }
+            throw error;
+          }
+        }
+        if (response) {
+          break;
+        }
+      }
+
+      if (!response) {
+        throw lastTimeout ?? new Error("Dongle CLI timed out.");
+      }
+      if (usedTarget === targets.fallback) {
+        updateSnapshotTarget(snapshot, usedTarget);
+      }
+      if (usedEncoding !== primaryTokenInfo.encoding) {
+        setTokenEncoding(message.dongle_id, usedEncoding);
+      }
       if (response.output) {
         const stream = response.status === "ok" ? "stdout" : "stderr";
         sendCommandChunk({
@@ -953,10 +1112,14 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
         report,
         signature,
         lastSeenAt: Date.now(),
+        sourceIp: event.sourceIp,
+        sourcePort: event.sourcePort,
         ownershipState: existing?.ownershipState ?? null,
         ownerUserId: existing?.ownerUserId ?? null,
         cloudId: existing?.cloudId ?? null,
       });
+      // Keep the cloud last_seen_at fresh even if the payload hasn't changed.
+      dirty = true;
       updateDiscoveryStatus();
     });
     setStatus({ discoveryActive: true });

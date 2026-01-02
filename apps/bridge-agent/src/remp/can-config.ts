@@ -62,6 +62,7 @@ export const applyCanConfigToDongle = async (
   target: RempTarget,
   deviceId: string,
   token: string,
+  tokenBytes: Buffer | undefined,
   config: CanConfigApplyRequest,
   timeoutMs = 5000
 ): Promise<ApplyCanConfigResult> => {
@@ -69,7 +70,7 @@ export const applyCanConfigToDongle = async (
   const header = encodeRempHeader({
     type: REMP_TYPE_CAN_CONFIG,
     deviceId: deviceIdToBytes(deviceId),
-    token: decodeDongleToken(token),
+    token: tokenBytes ?? decodeDongleToken(token),
   });
   const message = Buffer.concat([header, payload]);
   const response = await transport.request({

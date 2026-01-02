@@ -36,6 +36,12 @@ const toDeviceId = (value: Buffer) => value.toString("hex");
 
 export const createRempTransport = (): RempTransport => {
   const socket = dgram.createSocket("udp4");
+  const debug = process.env.BRIDGE_AGENT_DEBUG_REMP === "1";
+  const logDebug = (message: string) => {
+    if (debug) {
+      console.log(`[bridge-agent] remp ${message}`);
+    }
+  };
   const listeners = new Set<(event: RempCanEvent) => void>();
   const pending = new Set<PendingRequest>();
   let seq = 0;
@@ -55,6 +61,7 @@ export const createRempTransport = (): RempTransport => {
   };
 
   socket.on("error", (error) => {
+    logDebug(`socket error: ${error.message}`);
     rejectAll(error);
   });
 
@@ -63,25 +70,40 @@ export const createRempTransport = (): RempTransport => {
     try {
       header = decodeRempHeader(message);
     } catch {
+      logDebug(`non-remp packet from ${rinfo.address}:${rinfo.port} (${message.length} bytes)`);
       return;
     }
     const payload = message.subarray(header.payloadOffset);
     for (const req of pending) {
       if (req.match(header, payload)) {
+        logDebug(
+          `matched type=${header.type} device=${header.deviceId.toString("hex")} token_len=${header.tokenLen} ` +
+            `from ${rinfo.address}:${rinfo.port} payload=${payload.length}`
+        );
         clearTimeout(req.timeout);
         pending.delete(req);
         req.resolve(message);
         return;
       }
     }
+    logDebug(
+      `unmatched type=${header.type} device=${header.deviceId.toString("hex")} token_len=${header.tokenLen} ` +
+        `from ${rinfo.address}:${rinfo.port} payload=${payload.length}`
+    );
     if (header.type === REMP_TYPE_CAN) {
       try {
         const frame = decodeCanFrame(payload);
         const deviceId = toDeviceId(header.deviceId);
+        logDebug(
+          `can frame device=${deviceId} dlc=${frame.dlc} is_extended=${frame.isExtended} data_len=${frame.data.length}`
+        );
         listeners.forEach((handler) =>
           handler({ deviceId, frame, source: { host: rinfo.address, port: rinfo.port } })
         );
       } catch {
+        logDebug(
+          `can decode failed payload=${payload.toString("hex")} length=${payload.length}`
+        );
         return;
       }
     }
@@ -95,6 +117,7 @@ export const createRempTransport = (): RempTransport => {
           reject(err);
           return;
         }
+        logDebug(`sent ${message.length} bytes to ${target.host}:${target.port}`);
         resolve();
       });
     });
@@ -111,6 +134,9 @@ export const createRempTransport = (): RempTransport => {
     return new Promise<Buffer>((resolve, reject) => {
       const timeout = setTimeout(() => {
         pending.delete(request);
+        logDebug(
+          `timeout waiting for response (request=${requestId}) to ${opts.target.host}:${opts.target.port}`
+        );
         reject(new Error("REMP request timed out."));
       }, opts.timeoutMs);
 
@@ -127,6 +153,7 @@ export const createRempTransport = (): RempTransport => {
         if (err) {
           pending.delete(request);
           clearTimeout(timeout);
+          logDebug(`send error to ${opts.target.host}:${opts.target.port}: ${err.message}`);
           reject(err);
         }
       });

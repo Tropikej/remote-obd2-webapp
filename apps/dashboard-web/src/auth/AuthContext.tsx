@@ -60,13 +60,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (email: string, password: string) => {
     setState((prev) => ({ ...prev, error: null }));
     const { user } = await api.login(email, password);
-    setState((prev) => ({ ...prev, user, error: null }));
+    const token = await api.refreshCsrf();
+    setState((prev) => ({ ...prev, user, csrfToken: token, error: null }));
   }, []);
 
   const signup = useCallback(async (email: string, password: string) => {
     setState((prev) => ({ ...prev, error: null }));
     const { user } = await api.signup(email, password);
-    setState((prev) => ({ ...prev, user, error: null }));
+    const token = await api.refreshCsrf();
+    setState((prev) => ({ ...prev, user, csrfToken: token, error: null }));
   }, []);
 
   const logout = useCallback(async () => {
@@ -76,7 +78,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // If logout fails (e.g. session already expired), still clear local state to force a fresh login.
       setError(error);
     } finally {
-      setState((prev) => ({ ...prev, user: null }));
+      setState((prev) => ({ ...prev, user: null, csrfToken: null }));
     }
   }, []);
 

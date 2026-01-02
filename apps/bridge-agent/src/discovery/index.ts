@@ -18,6 +18,7 @@ export type InterfaceInfo = {
 export type DiscoveryEvent = {
   payload: AnnouncePayload;
   sourceIp: string;
+  sourcePort: number;
   interfaceInfo: InterfaceInfo | null;
   receivedAt: Date;
 };
@@ -161,12 +162,19 @@ export const startDiscovery = (config: DiscoveryConfig): DiscoveryScanner => {
       }
 
       const sourceIp = rinfo.address;
+      const sourcePort = rinfo.port;
       const interfaceInfo = findInterfaceForIp(interfaces, sourceIp);
 
+      const lanIp = payload.lanIp;
+      const isValidLanIp =
+        typeof lanIp === "string" &&
+        /^\d{1,3}(?:\.\d{1,3}){3}$/.test(lanIp) &&
+        !lanIp.startsWith("127.") &&
+        lanIp !== "0.0.0.0";
       const normalized: AnnouncePayload = {
         ...payload,
         deviceId,
-        lanIp: payload.lanIp || sourceIp,
+        lanIp: isValidLanIp ? lanIp : sourceIp,
       };
 
       if (DEBUG_DISCOVERY) {
@@ -179,6 +187,7 @@ export const startDiscovery = (config: DiscoveryConfig): DiscoveryScanner => {
       emitter.emit("dongleDiscovered", {
         payload: normalized,
         sourceIp,
+        sourcePort,
         interfaceInfo,
         receivedAt: new Date(),
       } satisfies DiscoveryEvent);

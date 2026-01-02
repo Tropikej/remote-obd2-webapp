@@ -29,6 +29,7 @@ export class ApiError extends Error {
 }
 
 let csrfToken: string | null = null;
+let csrfTokenPromise: Promise<string> | null = null;
 
 const parseJson = async (response: Response) => {
   try {
@@ -50,20 +51,28 @@ const ensureHeaders = (initHeaders: HeadersInit | undefined, body?: BodyInit | n
 
 const ensureCsrf = async () => {
   if (csrfToken) return csrfToken;
-  const res = await fetch("/api/v1/auth/csrf", {
-    credentials: "include",
-  });
-  const data = await parseJson(res);
-  if (!res.ok || !data?.token) {
-    throw new ApiError("CSRF_FETCH_FAILED", "Unable to fetch CSRF token.", res.status || 500);
+  if (csrfTokenPromise) return csrfTokenPromise;
+  csrfTokenPromise = (async () => {
+    const res = await fetch("/api/v1/auth/csrf", {
+      credentials: "include",
+    });
+    const data = await parseJson(res);
+    if (!res.ok || !data?.token) {
+      throw new ApiError("CSRF_FETCH_FAILED", "Unable to fetch CSRF token.", res.status || 500);
+    }
+    csrfToken = data.token as string;
+    return csrfToken;
+  })();
+  try {
+    return await csrfTokenPromise;
+  } finally {
+    csrfTokenPromise = null;
   }
-  csrfToken = data.token as string;
-  return csrfToken;
 };
 
 type RequestOptions = RequestInit & { skipCsrf?: boolean };
 
-const request = async <T>(path: string, init: RequestOptions = {}): Promise<T> => {
+const request = async <T>(path: string, init: RequestOptions = {}, retry = true): Promise<T> => {
   const method = (init.method ?? "GET").toUpperCase();
   const needsCsrf = !SAFE_METHODS.has(method);
   const headers = ensureHeaders(init.headers, init.body);
@@ -84,6 +93,16 @@ const request = async <T>(path: string, init: RequestOptions = {}): Promise<T> =
 
   if (!response.ok) {
     const err = data as ApiErrorResponse | null;
+    if (
+      retry &&
+      response.status === 403 &&
+      err?.code === "CSRF_INVALID" &&
+      (!init.body || typeof init.body === "string")
+    ) {
+      csrfToken = null;
+      await ensureCsrf();
+      return request<T>(path, init, false);
+    }
     throw new ApiError(
       err?.code ?? "UNKNOWN_ERROR",
       err?.message ?? `Request failed with status ${response.status}`,
@@ -158,6 +177,11 @@ export type AdminUser = User & { status: "active" | "disabled" };
 export const api = {
   ensureCsrf,
   getCsrf() {
+    return ensureCsrf();
+  },
+  refreshCsrf() {
+    csrfToken = null;
+    csrfTokenPromise = null;
     return ensureCsrf();
   },
   async bootstrapSession() {

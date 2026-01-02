@@ -17,6 +17,13 @@ const redis = getRedis();
 const STREAM_MAX_LEN = 200000;
 const DONGLE_TOUCH_INTERVAL_MS = 30000;
 const lastDongleTouch = new Map<string, number>();
+const debug = process.env.DASHBOARD_DEBUG_DATA_PLANE === "1";
+
+const logDebug = (message: string) => {
+  if (debug) {
+    console.log(`[data-plane] ${message}`);
+  }
+};
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -289,6 +296,7 @@ export const attachDataPlaneWs = (server: import("http").Server) => {
       existing.socket.close(1000, "Replaced by new connection");
     }
     connections.set(agentId, { agentId, socket });
+    logDebug(`agent connected ${agentId}`);
 
     void replayBufferedFrames(agentId, socket);
     void updateGroupModesForAgent(agentId);
@@ -299,6 +307,9 @@ export const attachDataPlaneWs = (server: import("http").Server) => {
         return;
       }
       if (message.type === "can_frame") {
+        logDebug(
+          `can_frame from agent=${agentId} dongle=${(message as DataPlaneCanMessage).dongle_id}`
+        );
         void handleCanFrame(agentId, message as DataPlaneCanMessage);
       }
     });
@@ -308,6 +319,7 @@ export const attachDataPlaneWs = (server: import("http").Server) => {
       if (current?.socket === socket) {
         connections.delete(agentId);
       }
+      logDebug(`agent disconnected ${agentId}`);
       void updateGroupModesForAgent(agentId);
       void publishAgentOffline(agentId);
     });
@@ -317,6 +329,7 @@ export const attachDataPlaneWs = (server: import("http").Server) => {
       if (current?.socket === socket) {
         connections.delete(agentId);
       }
+      logDebug(`agent error ${agentId}`);
       void updateGroupModesForAgent(agentId);
       void publishAgentOffline(agentId);
     });

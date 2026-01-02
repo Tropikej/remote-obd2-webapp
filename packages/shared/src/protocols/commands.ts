@@ -8,6 +8,8 @@ export type CommandRequestMessage = {
   command: string;
   args: string[];
   timeout_ms: number;
+  lan_ip?: string;
+  udp_port?: number;
   command_target?: CommandTarget;
   command_source?: CommandSource;
   allow_dangerous?: boolean;
