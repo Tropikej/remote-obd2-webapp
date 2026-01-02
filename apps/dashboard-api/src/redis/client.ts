@@ -1,4 +1,4 @@
-import Redis, { type Redis as RedisClient } from "ioredis";
+import Redis, { type Redis as RedisClient, type RedisOptions } from "ioredis";
 
 let client: RedisClient | null = null;
 
@@ -12,7 +12,17 @@ export const getRedis = (): RedisClient => {
     throw new Error("REDIS_URL is required for Redis-backed features.");
   }
 
-  client = new Redis(url);
+  let options: RedisOptions | undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "localhost") {
+      options = { family: 4 };
+    }
+  } catch {
+    options = undefined;
+  }
+
+  client = options ? new Redis(url, options) : new Redis(url);
   return client;
 };
 
