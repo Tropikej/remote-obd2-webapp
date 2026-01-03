@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { Layout } from "./components/Layout";
 import { PublicOnly, RequireAuth } from "./components/RouteGuards";
 import { AdminPage } from "./pages/AdminPage";
+import { BenchmarkPage } from "./pages/BenchmarkPage";
 import { ConsolePage } from "./pages/ConsolePage";
 import { DongleDetailPage } from "./pages/DongleDetailPage";
 import { DonglesPage } from "./pages/DonglesPage";
@@ -25,6 +26,7 @@ export const App = () => (
             <Route path="/dongles/:id" element={<DongleDetailPage />} />
             <Route path="/groups" element={<GroupsPage />} />
             <Route path="/console" element={<ConsolePage />} />
+            <Route path="/benchmark" element={<BenchmarkPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
         </Route>

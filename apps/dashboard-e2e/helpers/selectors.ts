@@ -12,6 +12,7 @@ export const selectors = {
   navDongles: "nav-dongles",
   navGroups: "nav-groups",
   navConsole: "nav-console",
+  navBenchmark: "nav-benchmark",
   navAdmin: "nav-admin",
   navMenu: "nav-menu",
   groupDongleA: "group-dongle-a",
@@ -42,6 +43,7 @@ export const selectors = {
   consoleFilterTx: "console-filter-tx",
   consoleFilterSearch: "console-filter-search",
   consoleCanFilter: "console-can-filter",
+  benchmarkTargetId: "benchmark-target-id",
 };
 
 export const dongleViewButton = (deviceId: string) => `dongle-view-${deviceId}`;

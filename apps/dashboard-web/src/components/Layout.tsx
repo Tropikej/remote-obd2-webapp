@@ -59,6 +59,7 @@ export const Layout = () => {
       ];
 
   if (user?.role === "super_admin") {
+    navLinks.push({ to: "/benchmark", label: "Benchmark", testId: "nav-benchmark" });
     navLinks.push({ to: "/admin", label: "Admin", testId: "nav-admin" });
   }
 

@@ -160,6 +160,30 @@ export type CanFrameSendRequest = {
   bus?: string;
 };
 
+export type BenchmarkMode = "ordered" | "fuzz";
+
+export type BenchmarkSendRequest = {
+  mode: BenchmarkMode;
+  delay_ms: number;
+  can_id?: string;
+  dlc?: number;
+  is_extended?: boolean;
+  bus?: string;
+};
+
+export type BenchmarkSendResponse = {
+  ok: boolean;
+  frame: {
+    mode: BenchmarkMode;
+    delay_ms: number;
+    can_id: string;
+    is_extended: boolean;
+    dlc: number;
+    data_hex: string;
+    bus?: string;
+  };
+};
+
 export type AuditLogEntry = {
   id: string;
   action: string;
@@ -251,6 +275,12 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  benchmarkSend(id: string, payload: BenchmarkSendRequest) {
+    return request<BenchmarkSendResponse>(`/api/v1/benchmark/dongles/${id}/send`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
   sendCommand(id: string, payload: CommandRequest) {
     return request<{ command_id: string; status: string }>(`/api/v1/dongles/${id}/commands`, {
       method: "POST",
@@ -307,6 +337,9 @@ export const api = {
     },
     groupConsoleUrl(id: string) {
       return `/api/v1/streams/groups/${id}/console`;
+    },
+    benchmarkDongleUrl(id: string) {
+      return `/api/v1/benchmark/dongles/${id}/stream`;
     },
   },
 };
