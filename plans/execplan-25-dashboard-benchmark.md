@@ -13,7 +13,7 @@ The dashboard needs an admin-only Benchmark page to observe and test CAN perform
 - [x] (2026-01-03 12:40Z) Add backend endpoints and data-plane routes for admin-only benchmarking (send and stream).
 - [x] (2026-01-03 12:52Z) Implement the admin Benchmark page UI with ordered/fuzz send controls and live frame table.
 - [x] (2026-01-03 13:05Z) Add delay/ordering detectors, thresholds, and dashboard alerts.
-- [ ] (2026-01-03 13:20Z) Add E2E tests and run them; update root scripts if needed (completed: added benchmark E2E coverage; blocked: Docker Desktop engine not available for `docker compose`).
+- [ ] (2026-01-03 13:20Z) Add E2E tests and run them; update root scripts if needed (completed: added benchmark E2E coverage; blocked: Docker Desktop engine not available for `docker compose`. Question: can you start Docker Desktop so the E2E stack can be brought up?)
 
 ## Surprises & Discoveries
 
