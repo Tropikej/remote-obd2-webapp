@@ -111,7 +111,7 @@ export const BenchmarkPage = () => {
   const targetIdRef = useRef(targetId);
   const expectedDelayRef = useRef(expectedDelayMs);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const processedIndexRef = useRef(0);
+  const lastProcessedRef = useRef<{ id: string | null; receivedAt: number } | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
   const orderingStateRef = useRef(new Map<string, number[]>());
 
@@ -164,7 +164,7 @@ export const BenchmarkPage = () => {
     clearEvents();
     setFrames([]);
     setAlerts([]);
-    processedIndexRef.current = 0;
+    lastProcessedRef.current = null;
     lastFrameTimeRef.current = null;
     orderingStateRef.current.clear();
   };
@@ -205,11 +205,28 @@ export const BenchmarkPage = () => {
   }, [sending, sendConfig.delayMs]);
 
   useEffect(() => {
-    if (events.length <= processedIndexRef.current) {
+    if (events.length === 0) {
       return;
     }
-    const nextEvents = events.slice(processedIndexRef.current);
-    processedIndexRef.current = events.length;
+    const lastProcessed = lastProcessedRef.current;
+    let nextEvents = events;
+    if (lastProcessed) {
+      if (lastProcessed.id) {
+        const idx = events.findIndex((evt) => evt.id === lastProcessed.id);
+        if (idx >= 0) {
+          nextEvents = events.slice(idx + 1);
+        } else {
+          nextEvents = events.filter((evt) => evt.receivedAt > lastProcessed.receivedAt);
+        }
+      } else {
+        nextEvents = events.filter((evt) => evt.receivedAt > lastProcessed.receivedAt);
+      }
+    }
+    if (nextEvents.length === 0) {
+      return;
+    }
+    const latestEvent = nextEvents[nextEvents.length - 1];
+    lastProcessedRef.current = { id: latestEvent.id ?? null, receivedAt: latestEvent.receivedAt };
 
     const newFrames: BenchmarkFrame[] = [];
     const newAlerts: BenchmarkAlert[] = [];
