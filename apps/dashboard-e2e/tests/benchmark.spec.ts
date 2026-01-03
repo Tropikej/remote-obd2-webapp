@@ -30,6 +30,11 @@ test.describe("benchmark access", () => {
       await page.getByTestId(selectors.navBenchmark).click();
       await expect(page.getByRole("heading", { name: "Benchmark" })).toBeVisible();
       await expect(page.getByTestId(selectors.benchmarkTargetId)).toBeVisible();
+      const orderToggle = page.getByTestId(selectors.benchmarkOrderCheck);
+      await expect(orderToggle).toBeVisible();
+      await expect(orderToggle).toBeChecked();
+      await orderToggle.click();
+      await expect(orderToggle).not.toBeChecked();
     });
   });
 });

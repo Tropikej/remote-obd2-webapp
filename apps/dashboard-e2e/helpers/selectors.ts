@@ -44,6 +44,7 @@ export const selectors = {
   consoleFilterSearch: "console-filter-search",
   consoleCanFilter: "console-can-filter",
   benchmarkTargetId: "benchmark-target-id",
+  benchmarkOrderCheck: "benchmark-order-check",
 };
 
 export const dongleViewButton = (deviceId: string) => `dongle-view-${deviceId}`;

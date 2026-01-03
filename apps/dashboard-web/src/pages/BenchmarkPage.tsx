@@ -10,6 +10,7 @@ import {
   Grid,
   MenuItem,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -97,6 +98,7 @@ export const BenchmarkPage = () => {
   const [frames, setFrames] = useState<BenchmarkFrame[]>([]);
   const [sending, setSending] = useState(false);
   const [expectedDelayMs, setExpectedDelayMs] = useState(25);
+  const [orderCheckEnabled, setOrderCheckEnabled] = useState(true);
   const [sendConfig, setSendConfig] = useState({
     mode: "ordered" as BenchmarkMode,
     canId: "0x123",
@@ -178,6 +180,10 @@ export const BenchmarkPage = () => {
   }, [targetId]);
 
   useEffect(() => {
+    orderingStateRef.current.clear();
+  }, [orderCheckEnabled]);
+
+  useEffect(() => {
     if (!sending) {
       return;
     }
@@ -237,7 +243,7 @@ export const BenchmarkPage = () => {
       const canKey = normalizeCanId(canId);
       const bytes = parseHexPayload(payload);
       const isRxLike = !direction || direction !== "tx";
-      if (isRxLike && canKey && bytes) {
+      if (orderCheckEnabled && isRxLike && canKey && bytes) {
         const key = `${canKey}:${bytes.length}`;
         const previous = orderingStateRef.current.get(key);
         if (previous) {
@@ -286,7 +292,7 @@ export const BenchmarkPage = () => {
         return next;
       });
     }
-  }, [events]);
+  }, [events, orderCheckEnabled]);
 
   useEffect(() => {
     return () => {
@@ -486,6 +492,17 @@ export const BenchmarkPage = () => {
                   <Chip label={`Warn > ${DELAY_WARN_MS}ms`} color="warning" size="small" />
                   <Chip label={`Error > ${DELAY_ERROR_MS}ms`} color="error" size="small" />
                 </Stack>
+                <Divider />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={orderCheckEnabled}
+                      onChange={(e) => setOrderCheckEnabled(e.target.checked)}
+                      inputProps={{ "data-testid": "benchmark-order-check" }}
+                    />
+                  }
+                  label="Enable ordering detection"
+                />
               </Stack>
             </InfoCard>
           </Stack>
