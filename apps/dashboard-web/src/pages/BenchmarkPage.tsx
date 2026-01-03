@@ -49,13 +49,14 @@ const normalizeCanId = (value: string | null | undefined) =>
 
 const parseHexPayload = (value: string) => {
   const trimmed = value.trim().toLowerCase().replace(/^0x/, "");
-  if (!trimmed) return [];
-  if (!/^[0-9a-f]+$/.test(trimmed) || trimmed.length % 2 !== 0) {
+  const normalized = trimmed.replace(/\s+/g, "");
+  if (!normalized) return [];
+  if (!/^[0-9a-f]+$/.test(normalized) || normalized.length % 2 !== 0) {
     return null;
   }
   const bytes: number[] = [];
-  for (let i = 0; i < trimmed.length; i += 2) {
-    bytes.push(Number.parseInt(trimmed.slice(i, i + 2), 16));
+  for (let i = 0; i < normalized.length; i += 2) {
+    bytes.push(Number.parseInt(normalized.slice(i, i + 2), 16));
   }
   return bytes;
 };
@@ -177,10 +178,6 @@ export const BenchmarkPage = () => {
   }, [targetId]);
 
   useEffect(() => {
-    orderingStateRef.current.clear();
-  }, [sendConfig.mode, sendConfig.canId]);
-
-  useEffect(() => {
     if (!sending) {
       return;
     }
@@ -205,8 +202,6 @@ export const BenchmarkPage = () => {
     if (events.length <= processedIndexRef.current) {
       return;
     }
-    const orderedId = normalizeCanId(configRef.current.canId);
-    const orderCheckEnabled = configRef.current.mode === "ordered" && orderedId.length > 0;
     const nextEvents = events.slice(processedIndexRef.current);
     processedIndexRef.current = events.length;
 
@@ -220,6 +215,7 @@ export const BenchmarkPage = () => {
       const payload = (data.data_hex ?? data.data ?? "").toString();
       const dlc =
         typeof data.dlc === "number" ? data.dlc : Math.floor(payload.length / 2) || 0;
+      const direction = typeof data.direction === "string" ? data.direction : undefined;
       const deltaMs =
         lastFrameTimeRef.current === null
           ? null
@@ -238,25 +234,26 @@ export const BenchmarkPage = () => {
         });
       }
 
-      if (orderCheckEnabled && normalizeCanId(canId) === orderedId) {
-        const bytes = parseHexPayload(payload);
-        if (bytes) {
-          const previous = orderingStateRef.current.get(orderedId);
-          if (previous) {
-            const expected = incrementPayload(previous);
-            const expectedHex = bytesToHex(expected);
-            const receivedHex = bytesToHex(bytes);
-            if (expectedHex !== receivedHex) {
-              newAlerts.push({
-                id: `${event.receivedAt}-order`,
-                severity: "error",
-                ts: event.receivedAt,
-                message: `Order mismatch for ${canId}. Expected ${expectedHex} got ${receivedHex}.`,
-              });
-            }
+      const canKey = normalizeCanId(canId);
+      const bytes = parseHexPayload(payload);
+      const isRxLike = !direction || direction !== "tx";
+      if (isRxLike && canKey && bytes) {
+        const key = `${canKey}:${bytes.length}`;
+        const previous = orderingStateRef.current.get(key);
+        if (previous) {
+          const expected = incrementPayload(previous);
+          const expectedHex = bytesToHex(expected);
+          const receivedHex = bytesToHex(bytes);
+          if (expectedHex !== receivedHex) {
+            newAlerts.push({
+              id: `${event.receivedAt}-order-${key}`,
+              severity: "error",
+              ts: event.receivedAt,
+              message: `Order mismatch for ${canId}. Expected ${expectedHex} got ${receivedHex}.`,
+            });
           }
-          orderingStateRef.current.set(orderedId, bytes);
         }
+        orderingStateRef.current.set(key, bytes);
       }
 
       newFrames.push({
@@ -267,7 +264,7 @@ export const BenchmarkPage = () => {
         dlc,
         payload,
         delayLevel,
-        direction: data.direction,
+        direction,
       });
     });
 
