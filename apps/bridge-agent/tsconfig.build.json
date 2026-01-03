@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@dashboard/shared": [
+        "packages/shared/dist/index.d.ts"
+      ],
+      "@dashboard/shared/*": [
+        "packages/shared/dist/*"
+      ],
+      "@dashboard/ui": [
+        "packages/ui/dist/index.d.ts"
+      ],
+      "@dashboard/ui/*": [
+        "packages/ui/dist/*"
+      ],
+      "@dashboard/remp": [
+        "packages/remp/dist/index.d.ts"
+      ],
+      "@dashboard/remp/*": [
+        "packages/remp/dist/*"
+      ]
+    }
+  }
+}

@@ -8,7 +8,7 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "ts-node -r tsconfig-paths/register src/main.ts",
-    "build": "npm run build --workspace @dashboard/shared && npm run build --workspace @dashboard/ui && npm run build --workspace @dashboard/remp && tsc -p tsconfig.json",
+    "build": "npm run build --workspace @dashboard/shared && npm run build --workspace @dashboard/ui && npm run build --workspace @dashboard/remp && tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "dev:desktop": "node scripts/dev-desktop.cjs",
     "build:desktop:renderer": "vite build --config vite.desktop.config.ts",
