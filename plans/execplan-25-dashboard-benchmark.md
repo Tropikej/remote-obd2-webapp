@@ -13,11 +13,11 @@ The dashboard needs an admin-only Benchmark page to observe and test CAN perform
 - [x] (2026-01-03 12:40Z) Add backend endpoints and data-plane routes for admin-only benchmarking (send and stream).
 - [x] (2026-01-03 12:52Z) Implement the admin Benchmark page UI with ordered/fuzz send controls and live frame table.
 - [x] (2026-01-03 13:05Z) Add delay/ordering detectors, thresholds, and dashboard alerts.
-- [ ] (2026-01-03 13:20Z) Add E2E tests and run them; update root scripts if needed (completed: added benchmark E2E coverage; blocked: Docker Desktop engine not available for `docker compose`. Question: can you start Docker Desktop so the E2E stack can be brought up?)
+- [x] (2026-01-03 13:46Z) Add E2E tests and run them; update root scripts if needed (completed: added benchmark E2E coverage; ran full E2E suite).
 
 ## Surprises & Discoveries
 
-- Observation: E2E Docker Compose failed because the Docker Desktop engine socket was unavailable on this host.
+- Observation: Initial E2E bootstrap required Docker Desktop to be running.
   Evidence: `unable to get image 'infra-api': ... open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.`
 
 ## Decision Log
@@ -40,9 +40,9 @@ The dashboard needs an admin-only Benchmark page to observe and test CAN perform
 
 ## Outcomes & Retrospective
 
-Backend benchmark routes, the admin Benchmark page, and ordering/delay detectors are implemented. Web and API builds pass; E2E is blocked until Docker Desktop is available to bring up the test stack.
+Backend benchmark routes, the admin Benchmark page, and ordering/delay detectors are implemented. Web/API builds and the full E2E suite pass after bringing up the Docker test stack.
 
-Plan update note: Captured completion status for backend/UI/detectors and marked E2E as blocked pending Docker availability.
+Plan update note: Marked E2E execution as complete after Docker stack passed and updated outcomes accordingly.
 
 ## Context and Orientation
 
