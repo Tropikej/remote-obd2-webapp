@@ -1,10 +1,18 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentLoginPayload, AgentLoginResponse, AgentStatusPayload } from "./types";
+import type {
+  AgentLoginPayload,
+  AgentLoginResponse,
+  AgentSettingsPayload,
+  AgentSettingsResponse,
+  AgentStatusPayload,
+} from "./types";
 
 const api = {
   login: (payload: AgentLoginPayload): Promise<AgentLoginResponse> =>
     ipcRenderer.invoke("agent:login", payload),
   logout: (): Promise<void> => ipcRenderer.invoke("agent:logout"),
+  updateSettings: (payload: AgentSettingsPayload): Promise<AgentSettingsResponse> =>
+    ipcRenderer.invoke("agent:updateSettings", payload),
   getStatus: (): Promise<AgentStatusPayload> => ipcRenderer.invoke("agent:getStatus"),
   toggleDiscovery: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke("agent:toggleDiscovery", enabled),

@@ -46,6 +46,8 @@ type AgentState = {
 
 export type AgentStatus = {
   apiBaseUrl: string;
+  dashboardWebUrl: string;
+  recentApiBaseUrls: string[];
   agentId: string | null;
   wsStatus: ControlConnectionStatus;
   lastHeartbeatAt: string | null;
@@ -68,6 +70,7 @@ export type DiscoveryDeviceStatus = {
 
 export type AgentOptions = {
   apiBaseUrl?: string;
+  dashboardWebUrl?: string;
   agentName?: string;
   version?: string;
   discoveryPort?: number;
@@ -87,8 +90,14 @@ export type AgentController = EventEmitter & {
   stop: () => Promise<void>;
   login: (payload: AgentLoginPayload) => Promise<void>;
   logout: () => Promise<void>;
+  updateSettings: (payload: AgentSettingsUpdate) => Promise<AgentStatus>;
   setDiscoveryEnabled: (enabled: boolean) => void;
   getStatus: () => AgentStatus;
+};
+
+export type AgentSettingsUpdate = {
+  apiBaseUrl: string;
+  dashboardWebUrl?: string;
 };
 
 type DeviceSnapshot = {
@@ -233,7 +242,44 @@ const parseNumber = (value: number | undefined, fallback: number) => {
 const isValidPort = (value: number | undefined) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 65535;
 
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
+const normalizeUrl = (value: string) => value.trim().replace(/\/+$/, "");
+
+const normalizeBaseUrl = (value: string) => normalizeUrl(value);
+
+const ensureHttpUrl = (value: string, label: string) => {
+  const normalized = normalizeUrl(value);
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch (error) {
+    throw new Error(`${label} must be a valid http or https URL.`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${label} must start with http:// or https://.`);
+  }
+  return normalized;
+};
+
+const updateRecentApiBaseUrls = (history: string[], next: string) => {
+  const normalized = normalizeBaseUrl(next);
+  const filtered = history.filter((entry) => normalizeBaseUrl(entry) !== normalized);
+  return [normalized, ...filtered].slice(0, 5);
+};
+
+const resolveConfiguredUrl = (
+  value: string | undefined,
+  label: string,
+  fallback: string
+) => {
+  if (!value) {
+    return { value: fallback, error: null };
+  }
+  try {
+    return { value: ensureHttpUrl(value, label), error: null };
+  } catch (error) {
+    return { value: fallback, error: (error as Error).message };
+  }
+};
 
 const parseCanId = (value: string) => {
   const trimmed = value.trim().toLowerCase();
@@ -299,6 +345,7 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
   const emitter = new EventEmitter() as AgentController;
 
   const envBaseUrl = process.env.API_BASE_URL;
+  const envDashboardWebUrl = process.env.DASHBOARD_WEB_URL;
   const envAgentName = process.env.BRIDGE_AGENT_NAME;
   const envVersion = process.env.BRIDGE_AGENT_VERSION || process.env.npm_package_version;
   const envDiscoveryPort = process.env.BRIDGE_AGENT_DISCOVERY_PORT
@@ -317,11 +364,17 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
   let config: AgentConfig = {};
   let agentName = options.agentName || envAgentName || os.hostname();
   let apiBaseUrl = normalizeBaseUrl(options.apiBaseUrl || envBaseUrl || "http://localhost:3000");
+  let dashboardWebUrl = normalizeBaseUrl(
+    options.dashboardWebUrl || envDashboardWebUrl || "http://localhost:5173"
+  );
+  let recentApiBaseUrls = updateRecentApiBaseUrls([], apiBaseUrl);
   let agentVersion = options.version || envVersion || "0.0.0";
 
   let state: AgentState = {};
   let status: AgentStatus = {
     apiBaseUrl,
+    dashboardWebUrl,
+    recentApiBaseUrls,
     agentId: null,
     wsStatus: "closed",
     lastHeartbeatAt: null,
@@ -490,6 +543,8 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     await saveConfig({
       ...config,
       apiBaseUrl,
+      apiBaseUrlHistory: recentApiBaseUrls,
+      dashboardWebUrl,
       agentName,
       agentId: state.agentId,
       agentToken: state.agentToken,
@@ -1299,7 +1354,28 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     }
     running = true;
     config = await loadConfig();
-    apiBaseUrl = normalizeBaseUrl(options.apiBaseUrl || envBaseUrl || config.apiBaseUrl || apiBaseUrl);
+    const apiResult = resolveConfiguredUrl(
+      options.apiBaseUrl || envBaseUrl || config.apiBaseUrl,
+      "API base URL",
+      apiBaseUrl
+    );
+    apiBaseUrl = apiResult.value;
+    const dashboardResult = resolveConfiguredUrl(
+      options.dashboardWebUrl || envDashboardWebUrl || config.dashboardWebUrl,
+      "Dashboard URL",
+      dashboardWebUrl
+    );
+    dashboardWebUrl = dashboardResult.value;
+    recentApiBaseUrls = updateRecentApiBaseUrls(
+      config.apiBaseUrlHistory ?? recentApiBaseUrls,
+      apiBaseUrl
+    );
+    config = {
+      ...config,
+      apiBaseUrl,
+      apiBaseUrlHistory: recentApiBaseUrls,
+      dashboardWebUrl,
+    };
     agentName = options.agentName || envAgentName || config.agentName || agentName;
     agentVersion = options.version || envVersion || agentVersion;
     state = {
@@ -1310,10 +1386,12 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
     discoveryEnabled = true;
     setStatus({
       apiBaseUrl,
+      dashboardWebUrl,
+      recentApiBaseUrls,
       agentId: state.agentId ?? null,
       needsLogin: !state.agentToken,
       discoveryEnabled,
-      lastError: null,
+      lastError: apiResult.error || dashboardResult.error,
     });
 
     if (state.agentToken) {
@@ -1368,6 +1446,50 @@ export const createAgentController = (options: AgentOptions = {}): AgentControll
 
   emitter.logout = async () => {
     await clearCredentials();
+  };
+
+  emitter.updateSettings = async (payload: AgentSettingsUpdate) => {
+    const nextApiBaseUrl = ensureHttpUrl(payload.apiBaseUrl, "API base URL");
+    const dashboardInput = payload.dashboardWebUrl?.trim();
+    const nextDashboardWebUrl = dashboardInput
+      ? ensureHttpUrl(dashboardInput, "Dashboard URL")
+      : dashboardWebUrl;
+    const nextRecent = updateRecentApiBaseUrls(recentApiBaseUrls, nextApiBaseUrl);
+
+    const apiChanged = nextApiBaseUrl !== apiBaseUrl;
+    const dashboardChanged = nextDashboardWebUrl !== dashboardWebUrl;
+    const historyChanged =
+      nextRecent.length !== recentApiBaseUrls.length ||
+      nextRecent.some((entry, index) => entry !== recentApiBaseUrls[index]);
+
+    if (!apiChanged && !dashboardChanged && !historyChanged) {
+      return status;
+    }
+
+    apiBaseUrl = nextApiBaseUrl;
+    dashboardWebUrl = nextDashboardWebUrl;
+    recentApiBaseUrls = nextRecent;
+    config = {
+      ...config,
+      apiBaseUrl,
+      apiBaseUrlHistory: recentApiBaseUrls,
+      dashboardWebUrl,
+    };
+
+    setStatus({
+      apiBaseUrl,
+      dashboardWebUrl,
+      recentApiBaseUrls,
+      lastError: null,
+    });
+
+    if (apiChanged) {
+      await clearCredentials();
+      return status;
+    }
+
+    await persistConfig();
+    return status;
   };
 
   emitter.setDiscoveryEnabled = (enabled: boolean) => {

@@ -4,9 +4,12 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { createAgentController } from "../agent-core";
 import type { AgentStatus } from "../agent-core";
-import type { AgentLoginPayload, AgentLoginResponse } from "./types";
-
-const dashboardUrl = process.env.DASHBOARD_WEB_URL || "http://localhost:5173";
+import type {
+  AgentLoginPayload,
+  AgentLoginResponse,
+  AgentSettingsPayload,
+  AgentSettingsResponse,
+} from "./types";
 const devServerUrl = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL;
 const logFile = path.join(app.getPath("userData"), "agent-ui.log");
 
@@ -98,7 +101,7 @@ const updateTrayMenu = () => {
     },
     {
       label: "Open Dashboard",
-      click: () => void shell.openExternal(dashboardUrl),
+      click: () => void shell.openExternal(status.dashboardWebUrl || "http://localhost:5173"),
     },
     {
       label: "Copy Agent ID",
@@ -153,6 +156,17 @@ const registerIpcHandlers = () => {
       try {
         await controller.login(payload);
         return { ok: true };
+      } catch (error) {
+        return { ok: false, error: (error as Error).message };
+      }
+    }
+  );
+  ipcMain.handle(
+    "agent:updateSettings",
+    async (_event, payload: AgentSettingsPayload): Promise<AgentSettingsResponse> => {
+      try {
+        await controller.updateSettings(payload);
+        return { ok: true, status: controller.getStatus() };
       } catch (error) {
         return { ok: false, error: (error as Error).message };
       }

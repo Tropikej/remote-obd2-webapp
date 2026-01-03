@@ -20,4 +20,20 @@ test.describe("bridge agent renderer", () => {
     await expect(page.getByText("Agent ID: dev-agent-001")).toBeVisible();
     await expect(page.getByText("Connected")).toBeVisible();
   });
+
+  test("server settings updates api url", async ({ page }) => {
+    await page.goto("/");
+
+    const apiInput = page.getByRole("textbox", { name: "API base URL" });
+    const saveButton = page.getByRole("button", { name: "Save settings" });
+
+    await apiInput.fill("https://example.com");
+    await saveButton.click();
+
+    await page.getByRole("textbox", { name: "Email" }).fill("user@example.com");
+    await page.getByRole("textbox", { name: "Password" }).fill("Password123");
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    await expect(page.getByText("API: https://example.com")).toBeVisible();
+  });
 });

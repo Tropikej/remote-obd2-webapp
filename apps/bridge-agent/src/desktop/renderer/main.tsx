@@ -11,6 +11,8 @@ const ensureDevAgentApi = () => {
 
   let status: AgentStatusPayload = {
     apiBaseUrl: "http://localhost:3000",
+    dashboardWebUrl: "http://localhost:5173",
+    recentApiBaseUrls: ["http://localhost:3000"],
     agentId: null,
     wsStatus: "closed",
     lastHeartbeatAt: null,
@@ -59,6 +61,32 @@ const ensureDevAgentApi = () => {
         wsStatus: "closed",
       };
       emit();
+    },
+    updateSettings: async ({ apiBaseUrl, dashboardWebUrl }) => {
+      if (!apiBaseUrl) {
+        return { ok: false, error: "API base URL is required." };
+      }
+      const nextDashboard = dashboardWebUrl?.trim() ? dashboardWebUrl : status.dashboardWebUrl;
+      const apiChanged = apiBaseUrl !== status.apiBaseUrl;
+      status = {
+        ...status,
+        apiBaseUrl,
+        dashboardWebUrl: nextDashboard,
+        recentApiBaseUrls: [
+          apiBaseUrl,
+          ...status.recentApiBaseUrls.filter((entry) => entry !== apiBaseUrl),
+        ].slice(0, 5),
+        ...(apiChanged
+          ? {
+              needsLogin: true,
+              wsStatus: "closed",
+              agentId: null,
+              lastHeartbeatAt: null,
+            }
+          : {}),
+      };
+      emit();
+      return { ok: true, status };
     },
     getStatus: async () => status,
     toggleDiscovery: async (enabled: boolean) => {

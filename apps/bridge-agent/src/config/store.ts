@@ -7,6 +7,8 @@ export type AgentConfig = {
   agentToken?: string;
   wsUrl?: string;
   apiBaseUrl?: string;
+  apiBaseUrlHistory?: string[];
+  dashboardWebUrl?: string;
   agentName?: string;
 };
 

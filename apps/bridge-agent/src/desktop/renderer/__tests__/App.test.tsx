@@ -7,6 +7,8 @@ import type { AgentStatusPayload } from "../../types";
 
 const baseStatus: AgentStatusPayload = {
   apiBaseUrl: "http://localhost:3000",
+  dashboardWebUrl: "http://localhost:5173",
+  recentApiBaseUrls: ["http://localhost:3000"],
   agentId: null,
   wsStatus: "closed",
   lastHeartbeatAt: null,
@@ -21,6 +23,7 @@ const mockAgentApi = (status: AgentStatusPayload) => {
   window.agentApi = {
     login: vi.fn().mockResolvedValue({ ok: true }),
     logout: vi.fn().mockResolvedValue(undefined),
+    updateSettings: vi.fn().mockResolvedValue({ ok: true, status }),
     getStatus: vi.fn().mockResolvedValue(status),
     toggleDiscovery: vi.fn().mockResolvedValue(undefined),
     onStatus: (handler) => {

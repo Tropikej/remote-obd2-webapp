@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "npm run prisma:generate",
     "dev": "npm run dev:services && npm run dev:stack",
     "dev:api": "npm run dev --workspace apps/dashboard-api",
     "dev:web": "npm run dev --workspace apps/dashboard-web",
@@ -20,11 +21,13 @@
     "test:control-plane": "node infra/scripts/test-control-plane.js",
     "test:ui": "npm run test --workspace packages/ui",
     "test:agent-renderer": "npm run test:renderer --workspace apps/bridge-agent",
+    "test:bridge-agent-ui": "npm run test:playwright --workspace apps/bridge-agent",
     "test:bridge-agent:discovery": "npm run test:discovery --workspace apps/bridge-agent",
     "test:bridge-agent:control-ws": "npm run test:control-ws --workspace apps/bridge-agent",
     "test:bridge-agent:api": "npm run test:api --workspace apps/bridge-agent",
     "test:bridge-agent": "npm run test:bridge-agent:discovery && npm run test:bridge-agent:control-ws && npm run test:bridge-agent:api",
     "test:data-plane": "node infra/scripts/test-data-plane.js",
+    "prisma:generate": "npx prisma generate --schema=prisma/schema.prisma",
     "dev:stack": "node infra/scripts/dev-stack.js",
     "dev:services": "docker compose -f infra/docker-compose.dev.yml up -d",
     "dev:services:down": "docker compose -f infra/docker-compose.dev.yml down",

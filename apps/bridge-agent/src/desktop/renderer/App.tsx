@@ -1,4 +1,4 @@
-import { Divider, Stack, Typography } from "@mui/material";
+import { Button, Divider, Stack, Typography } from "@mui/material";
 import {
   AppShell,
   AppTextField,
@@ -72,6 +72,11 @@ export const App = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsApiBaseUrl, setSettingsApiBaseUrl] = useState("");
+  const [settingsDashboardUrl, setSettingsDashboardUrl] = useState("");
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -90,6 +95,14 @@ export const App = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!status || settingsDirty) {
+      return;
+    }
+    setSettingsApiBaseUrl(status.apiBaseUrl);
+    setSettingsDashboardUrl(status.dashboardWebUrl);
+  }, [status, settingsDirty]);
+
   const handleLogin = async () => {
     setLoading(true);
     setError(null);
@@ -105,6 +118,29 @@ export const App = () => {
     }
   };
 
+  const handleSaveSettings = async () => {
+    setSettingsSaving(true);
+    setSettingsError(null);
+    try {
+      const result = await window.agentApi.updateSettings({
+        apiBaseUrl: settingsApiBaseUrl,
+        dashboardWebUrl: settingsDashboardUrl,
+      });
+      if (!result.ok) {
+        setSettingsError(result.error || "Unable to update settings.");
+        return;
+      }
+      if (result.status) {
+        setStatus(result.status);
+      }
+      setSettingsDirty(false);
+    } catch (err) {
+      setSettingsError((err as Error).message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
   const wsTone = useMemo(() => {
     if (!status) {
       return "neutral";
@@ -114,6 +150,91 @@ export const App = () => {
 
   const wsLabel = status?.wsStatus === "open" ? "Connected" : "Disconnected";
   const discoveredDevices = status?.discoveredDevices ?? [];
+  const recentApiBaseUrls = status?.recentApiBaseUrls ?? [];
+  const saveDisabled = settingsSaving || !settingsApiBaseUrl.trim();
+
+  const settingsCard = status ? (
+    <InfoCard title="Server settings">
+      <Stack spacing={1.5}>
+        <AppTextField
+          label="API base URL"
+          placeholder="https://baltringuelabs.cam"
+          value={settingsApiBaseUrl}
+          onChange={(event) => {
+            setSettingsApiBaseUrl(event.target.value);
+            setSettingsDirty(true);
+          }}
+        />
+        <AppTextField
+          label="Dashboard URL"
+          placeholder="https://baltringuelabs.cam"
+          value={settingsDashboardUrl}
+          onChange={(event) => {
+            setSettingsDashboardUrl(event.target.value);
+            setSettingsDirty(true);
+          }}
+        />
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              setSettingsApiBaseUrl("http://localhost:3000");
+              setSettingsDirty(true);
+            }}
+          >
+            Use local API
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              setSettingsDashboardUrl("http://localhost:5173");
+              setSettingsDirty(true);
+            }}
+          >
+            Use local dashboard
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              setSettingsDashboardUrl(settingsApiBaseUrl.trim());
+              setSettingsDirty(true);
+            }}
+          >
+            Dashboard = API
+          </Button>
+        </Stack>
+        {recentApiBaseUrls.length > 0 ? (
+          <Stack spacing={1}>
+            <Typography variant="body2" color="text.secondary">
+              Recent API endpoints
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {recentApiBaseUrls.map((entry) => (
+                <Button
+                  key={entry}
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setSettingsApiBaseUrl(entry);
+                    setSettingsDirty(true);
+                  }}
+                >
+                  {entry}
+                </Button>
+              ))}
+            </Stack>
+          </Stack>
+        ) : null}
+        {settingsError ? <Typography color="error">{settingsError}</Typography> : null}
+        <PrimaryButton disabled={saveDisabled} onClick={() => void handleSaveSettings()}>
+          {settingsSaving ? "Saving..." : "Save settings"}
+        </PrimaryButton>
+      </Stack>
+    </InfoCard>
+  ) : null;
 
   if (!status) {
     return (
@@ -126,37 +247,40 @@ export const App = () => {
   if (status.needsLogin) {
     return (
       <AppShell title="OBD2 Bridge Agent" subtitle="Sign in to connect this device.">
-        <Stack
-          component="form"
-          spacing={2}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!loading && email && password) {
-              void handleLogin();
-            }
-          }}
-        >
-          <AppTextField
-            label="Email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          <AppTextField
-            label="Password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          {error ? <Typography color="error">{error}</Typography> : null}
-          <PrimaryButton
-            type="submit"
-            disabled={loading || !email || !password}
+        <Stack spacing={2}>
+          <Stack
+            component="form"
+            spacing={2}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!loading && email && password) {
+                void handleLogin();
+              }
+            }}
           >
-            {loading ? "Signing in..." : "Sign in"}
-          </PrimaryButton>
+            <AppTextField
+              label="Email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            <AppTextField
+              label="Password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            {error ? <Typography color="error">{error}</Typography> : null}
+            <PrimaryButton
+              type="submit"
+              disabled={loading || !email || !password}
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </PrimaryButton>
+          </Stack>
+          {settingsCard}
         </Stack>
       </AppShell>
     );
@@ -171,8 +295,12 @@ export const App = () => {
             <Typography color="text.secondary">
               API: {status.apiBaseUrl}
             </Typography>
+            <Typography color="text.secondary">
+              Dashboard: {status.dashboardWebUrl}
+            </Typography>
           </Stack>
         </InfoCard>
+        {settingsCard}
         <InfoCard title="Agent">
           <Stack spacing={1}>
             <Typography>Agent ID: {status.agentId ?? "Unassigned"}</Typography>
