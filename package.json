@@ -28,6 +28,7 @@
     "test:bridge-agent": "npm run test:bridge-agent:discovery && npm run test:bridge-agent:control-ws && npm run test:bridge-agent:api",
     "test:data-plane": "node infra/scripts/test-data-plane.js",
     "prisma:generate": "npx prisma generate --schema=prisma/schema.prisma",
+    "test:pcan-benchmark-e2e": "dotnet test apps\\pcan-benchmark\\PcanBenchmark.E2E\\PcanBenchmark.E2E.csproj",
     "dev:stack": "node infra/scripts/dev-stack.js",
     "dev:services": "docker compose -f infra/docker-compose.dev.yml up -d",
     "dev:services:down": "docker compose -f infra/docker-compose.dev.yml down",

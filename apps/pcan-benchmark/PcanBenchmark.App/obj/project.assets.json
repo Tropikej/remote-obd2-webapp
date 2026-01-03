@@ -1,0 +1,97 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0-windows7.0": {
+      "PcanBenchmark.Core/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "compile": {
+          "bin/placeholder/PcanBenchmark.Core.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/PcanBenchmark.Core.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "PcanBenchmark.Core/1.0.0": {
+      "type": "project",
+      "path": "../PcanBenchmark.Core/PcanBenchmark.Core.csproj",
+      "msbuildProject": "../PcanBenchmark.Core/PcanBenchmark.Core.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0-windows7.0": [
+      "PcanBenchmark.Core >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\Jacques\\.nuget\\packages\\": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "E:\\Projets\\STM32\\workspace\\dashboard\\apps\\pcan-benchmark\\PcanBenchmark.App\\PcanBenchmark.App.csproj",
+      "projectName": "PcanBenchmark.App",
+      "projectPath": "E:\\Projets\\STM32\\workspace\\dashboard\\apps\\pcan-benchmark\\PcanBenchmark.App\\PcanBenchmark.App.csproj",
+      "packagesPath": "C:\\Users\\Jacques\\.nuget\\packages\\",
+      "outputPath": "E:\\Projets\\STM32\\workspace\\dashboard\\apps\\pcan-benchmark\\PcanBenchmark.App\\obj\\",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "C:\\Users\\Jacques\\AppData\\Roaming\\NuGet\\NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0-windows"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "projectReferences": {
+            "E:\\Projets\\STM32\\workspace\\dashboard\\apps\\pcan-benchmark\\PcanBenchmark.Core\\PcanBenchmark.Core.csproj": {
+              "projectPath": "E:\\Projets\\STM32\\workspace\\dashboard\\apps\\pcan-benchmark\\PcanBenchmark.Core\\PcanBenchmark.Core.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      }
+    },
+    "frameworks": {
+      "net8.0-windows7.0": {
+        "targetAlias": "net8.0-windows",
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          },
+          "Microsoft.WindowsDesktop.App.WindowsForms": {
+            "privateAssets": "none"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.416/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}
